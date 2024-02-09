@@ -487,6 +487,10 @@ const struct clam_option __clam_options[] = {
 
     {"OnAccessDenyOnError", NULL, 0, CLOPT_TYPE_BOOL, MATCH_BOOL, 0, NULL, 0, OPT_CLAMD, "When using prevention, if this option is turned on, any errors that occur during scanning will result in the event attempt being denied. This could potentially lead to unwanted system behaviour with certain configurations, so the client defaults to off and allowing access events in case of error.", "yes"},
 
+    /* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
+    {"OnAccessVirusEvent", NULL, 0, CLOPT_TYPE_STRING, NULL, -1, NULL, 0, OPT_CLAMD, "clamonacc executes this command when a virus is found. In the command string %v will be\nreplaced with the virus name and %f will be replaced with the file name.\nAdditionally, two environment variables will be defined: $CLAM_VIRUSEVENT_FILENAME\nand $CLAM_VIRUSEVENT_VIRUSNAME.", "/usr/bin/mailx -s \"ClamAV VIRUS ALERT: %v\" alert < /dev/null"},
+    /* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
+
     /* clamonacc cmdline options */
 
     {NULL, "watch-list", 'W', CLOPT_TYPE_STRING, NULL, -1, NULL, 0, OPT_CLAMONACC, "", ""},
