@@ -1,7 +1,7 @@
 /*
  *  Extract component parts of ARJ archives.
  *
- *  Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2007-2013 Sourcefire, Inc.
  *
  *  Authors: Trog
@@ -177,8 +177,8 @@ static cl_error_t fill_buf(arj_decode_t *decode_data, int n)
                 decode_data->buf = fmap_need_off_once_len(decode_data->map, decode_data->offset, 8192, &len);
                 if (!decode_data->buf || !len) {
                     /* the file is most likely corrupted, so
-				 * we return CL_EFORMAT instead of CL_EREAD
-				 */
+                     * we return CL_EFORMAT instead of CL_EREAD
+                     */
                     decode_data->status = CL_EFORMAT;
                     return CL_EFORMAT;
                 }
@@ -863,7 +863,7 @@ static int arj_read_main_header(arj_metadata_t *metadata)
         ret = FALSE;
         goto done;
     }
-    if ((header_size + sizeof(header_size)) > (metadata->map->real_len - metadata->offset)) {
+    if ((header_size + sizeof(header_size)) > (metadata->map->len - metadata->offset)) {
         cli_dbgmsg("arj_read_header: invalid header_size: %u, exceeds length of file.\n", header_size);
         ret = FALSE;
         goto done;
@@ -972,7 +972,7 @@ done:
 static cl_error_t arj_read_file_header(arj_metadata_t *metadata)
 {
     uint16_t header_size, count;
-    const char *filename, *comment;
+    const char *filename = NULL, *comment = NULL;
     arj_file_hdr_t file_hdr;
     struct text_norm_state fnstate, comstate;
     unsigned char *fnnorm  = NULL;
@@ -1001,7 +1001,7 @@ static cl_error_t arj_read_file_header(arj_metadata_t *metadata)
         ret = CL_EFORMAT;
         goto done;
     }
-    if ((header_size + sizeof(header_size)) > (metadata->map->real_len - metadata->offset)) {
+    if ((header_size + sizeof(header_size)) > (metadata->map->len - metadata->offset)) {
         cli_dbgmsg("arj_read_file_header: invalid header_size: %u, exceeds length of file.\n", header_size);
         ret = CL_EFORMAT;
         goto done;
@@ -1139,12 +1139,12 @@ done:
     return ret;
 }
 
-cl_error_t cli_unarj_open(fmap_t *map, const char *dirname, arj_metadata_t *metadata, size_t off)
+cl_error_t cli_unarj_open(fmap_t *map, const char *dirname, arj_metadata_t *metadata)
 {
     UNUSEDPARAM(dirname);
     cli_dbgmsg("in cli_unarj_open\n");
     metadata->map    = map;
-    metadata->offset = off;
+    metadata->offset = 0;
     if (!is_arj_archive(metadata)) {
         cli_dbgmsg("Not in ARJ format\n");
         return CL_EFORMAT;

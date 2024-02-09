@@ -1,7 +1,7 @@
 /*
  * OOXML JSON Internals
  *
- * Copyright (C) 2014-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ * Copyright (C) 2014-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *
  * Authors: Kevin Lin
  *
@@ -146,12 +146,13 @@ static cl_error_t ooxml_parse_document(int fd, cli_ctx *ctx)
     return ret;
 }
 
-static cl_error_t ooxml_core_cb(int fd, const char *filepath, cli_ctx *ctx, const char *name)
+static cl_error_t ooxml_core_cb(int fd, const char *filepath, cli_ctx *ctx, const char *name, uint32_t attributes)
 {
     cl_error_t ret;
 
     UNUSEDPARAM(filepath);
     UNUSEDPARAM(name);
+    UNUSEDPARAM(attributes);
 
     cli_dbgmsg("in ooxml_core_cb\n");
     ret = ooxml_parse_document(fd, ctx);
@@ -163,12 +164,13 @@ static cl_error_t ooxml_core_cb(int fd, const char *filepath, cli_ctx *ctx, cons
     return ret;
 }
 
-static cl_error_t ooxml_extn_cb(int fd, const char *filepath, cli_ctx *ctx, const char *name)
+static cl_error_t ooxml_extn_cb(int fd, const char *filepath, cli_ctx *ctx, const char *name, uint32_t attributes)
 {
     cl_error_t ret;
 
     UNUSEDPARAM(filepath);
     UNUSEDPARAM(name);
+    UNUSEDPARAM(attributes);
 
     cli_dbgmsg("in ooxml_extn_cb\n");
     ret = ooxml_parse_document(fd, ctx);
@@ -180,7 +182,7 @@ static cl_error_t ooxml_extn_cb(int fd, const char *filepath, cli_ctx *ctx, cons
     return ret;
 }
 
-static cl_error_t ooxml_content_cb(int fd, const char *filepath, cli_ctx *ctx, const char *name)
+static cl_error_t ooxml_content_cb(int fd, const char *filepath, cli_ctx *ctx, const char *name, uint32_t attributes)
 {
     cl_error_t ret = CL_SUCCESS;
     int tmp, toval = 0, state;
@@ -192,6 +194,7 @@ static cl_error_t ooxml_content_cb(int fd, const char *filepath, cli_ctx *ctx, c
 
     UNUSEDPARAM(filepath);
     UNUSEDPARAM(name);
+    UNUSEDPARAM(attributes);
 
     unsigned long sav_scansize    = ctx->scansize;
     unsigned int sav_scannedfiles = ctx->scannedfiles;
@@ -245,7 +248,7 @@ static cl_error_t ooxml_content_cb(int fd, const char *filepath, cli_ctx *ctx, c
             cli_dbgmsg("%s: %s\n", localname, value);
         }
 
-        if (!CT && !PN) continue;
+        if (!CT || !PN) continue;
 
         if (!xmlStrcmp(CT, (const xmlChar *)"application/vnd.openxmlformats-package.core-properties+xml")) {
             /* default: /docProps/core.xml*/
@@ -351,13 +354,14 @@ ooxml_content_exit:
     return ret;
 }
 
-static cl_error_t ooxml_hwp_cb(int fd, const char *filepath, cli_ctx *ctx, const char *name)
+static cl_error_t ooxml_hwp_cb(int fd, const char *filepath, cli_ctx *ctx, const char *name, uint32_t attributes)
 {
     cl_error_t ret          = CL_SUCCESS;
     xmlTextReaderPtr reader = NULL;
 
     UNUSEDPARAM(filepath);
     UNUSEDPARAM(name);
+    UNUSEDPARAM(attributes);
 
     cli_dbgmsg("in ooxml_hwp_cb\n");
 
@@ -437,7 +441,6 @@ cl_error_t cli_process_ooxml(cli_ctx *ctx, int type)
         /* two files: version.xml and Contents/content.hpf */
         ret = unzip_search_single(ctx, "version.xml", 11, &loff);
         if (ret == CL_ETIMEOUT) {
-            cli_json_parse_error(ctx->wrkproperty, "OOXML_ERROR_TIMEOUT");
             return CL_ETIMEOUT;
         } else if (ret != CL_VIRUS) {
             cli_dbgmsg("cli_process_ooxml: failed to find "
@@ -451,7 +454,6 @@ cl_error_t cli_process_ooxml(cli_ctx *ctx, int type)
         if (ret == CL_SUCCESS) {
             ret = unzip_search_single(ctx, "Contents/content.hpf", 20, &loff);
             if (ret == CL_ETIMEOUT) {
-                cli_json_parse_error(ctx->wrkproperty, "OOXML_ERROR_TIMEOUT");
                 return CL_ETIMEOUT;
             } else if (ret != CL_VIRUS) {
                 cli_dbgmsg("cli_process_ooxml: failed to find "
@@ -466,7 +468,6 @@ cl_error_t cli_process_ooxml(cli_ctx *ctx, int type)
         /* find "[Content Types].xml" */
         ret = unzip_search_single(ctx, "[Content_Types].xml", 19, &loff);
         if (ret == CL_ETIMEOUT) {
-            cli_json_parse_error(ctx->wrkproperty, "OOXML_ERROR_TIMEOUT");
             return CL_ETIMEOUT;
         } else if (ret != CL_VIRUS) {
             cli_dbgmsg("cli_process_ooxml: failed to find "
@@ -482,15 +483,6 @@ cl_error_t cli_process_ooxml(cli_ctx *ctx, int type)
 
         ret = unzip_single_internal(ctx, loff, ooxml_content_cb);
     }
-
-    if (ret == CL_ETIMEOUT)
-        cli_json_parse_error(ctx->wrkproperty, "OOXML_ERROR_TIMEOUT");
-    else if (ret == CL_EMEM)
-        cli_json_parse_error(ctx->wrkproperty, "OOXML_ERROR_OUTOFMEM");
-    else if (ret == CL_EMAXSIZE)
-        cli_json_parse_error(ctx->wrkproperty, "OOXML_ERROR_EMAXSIZE");
-    else if (ret == CL_EMAXFILES)
-        cli_json_parse_error(ctx->wrkproperty, "OOXML_ERROR_EMAXFILES");
 
     return ret;
 #else

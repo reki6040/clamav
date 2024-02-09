@@ -1,4 +1,4 @@
-# Copyright (C) 2020-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+# Copyright (C) 2020-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
 
 #
 # Assemble xor'ed test files that might otherwise be detected by:
@@ -62,6 +62,9 @@ if(ENABLE_UNRAR)
     )
 endif()
 
+add_custom_target(tgt_clamav_hdb_scanfiles ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/clamav_hdb_scanfiles)
+
 # Decrypt test file
 function(decrypt_testfile test_file)
     add_custom_command(OUTPUT clamav_hdb_scanfiles/${test_file}
@@ -71,6 +74,7 @@ function(decrypt_testfile test_file)
                 --out_file ${CMAKE_CURRENT_BINARY_DIR}/clamav_hdb_scanfiles/${test_file}
         COMMENT "Decrypting test file ${test_file}...")
     add_custom_target(tgt_${test_file} ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/clamav_hdb_scanfiles/${test_file})
+    ADD_DEPENDENCIES(tgt_${test_file} tgt_clamav_hdb_scanfiles)
 endfunction()
 
 foreach(TESTFILE ${TESTFILES})

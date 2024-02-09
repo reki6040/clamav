@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2011-2013 Sourcefire, Inc.
  *
  *  Authors: aCaB
@@ -24,10 +24,10 @@
 #endif
 
 #include <time.h>
+#include <openssl/bn.h>
 
 #include "clamav.h"
 #include "asn1.h"
-#include "bignum.h"
 #include "matcher-hash.h"
 
 /* --------------------------------------------------------------------------- OIDS */
@@ -376,7 +376,7 @@ static const oid_alternative_t *asn1_expect_algo_multi(fmap_t *map, const void *
 {
     struct cli_asn1 obj;
     unsigned int avail;
-    int i;
+    unsigned int i;
     const oid_alternative_t *oid_alt_ptr = NULL;
 
     if (asn1_expect_objtype(map, *asn1data, asn1len, &obj, ASN1_TYPE_SEQUENCE)) { /* SEQUENCE */
@@ -694,10 +694,9 @@ static int asn1_get_rsa_pubkey(fmap_t *map, const void **asn1data, unsigned int 
         cli_dbgmsg("asn1_get_rsa_pubkey: cannot read n\n");
         return 1;
     }
-    if (mp_read_unsigned_bin(&x509->n, obj.content, avail2)) {
-        cli_dbgmsg("asn1_get_rsa_pubkey: cannot convert n to big number\n");
+
+    if (!BN_bin2bn(obj.content, avail2, x509->n))
         return 1;
-    }
 
     if (asn1_expect_objtype(map, obj.next, &avail, &obj, ASN1_TYPE_INTEGER)) /* INTEGER - exp */
         return 1;
@@ -713,10 +712,10 @@ static int asn1_get_rsa_pubkey(fmap_t *map, const void **asn1data, unsigned int 
         cli_dbgmsg("asn1_get_rsa_pubkey: cannot read e\n");
         return 1;
     }
-    if (mp_read_unsigned_bin(&x509->e, obj.content, obj.size)) {
-        cli_dbgmsg("asn1_get_rsa_pubkey: cannot convert e to big number\n");
+
+    if (!BN_bin2bn(obj.content, obj.size, x509->e))
         return 1;
-    }
+
     return 0;
 }
 
@@ -741,10 +740,12 @@ static int asn1_get_x509(fmap_t *map, const void **asn1data, unsigned int *size,
     int ret = ASN1_GET_X509_UNRECOVERABLE_ERROR;
     unsigned int version;
 
-    if (cli_crt_init(&x509))
-        return ret;
-
     do {
+        if (cli_crt_init(&x509) < 0) {
+            cli_dbgmsg("asn1_get_x509: failed to initialize x509.\n");
+            break;
+        }
+
         if (asn1_expect_objtype(map, *asn1data, size, &crt, ASN1_TYPE_SEQUENCE)) { /* SEQUENCE */
             cli_dbgmsg("asn1_get_x509: expected SEQUENCE at the x509 start\n");
             break;
@@ -1110,10 +1111,10 @@ static int asn1_get_x509(fmap_t *map, const void **asn1data, unsigned int *size,
             cli_dbgmsg("asn1_get_x509: cannot read signature\n");
             break;
         }
-        if (mp_read_unsigned_bin(&x509.sig, obj.content, obj.size)) {
-            cli_dbgmsg("asn1_get_x509: cannot convert signature to big number\n");
+
+        if (!BN_bin2bn(obj.content, obj.size, x509.sig))
             break;
-        }
+
         if (crt.size) {
             cli_dbgmsg("asn1_get_x509: found unexpected extra data in signature\n");
             break;
@@ -1286,8 +1287,8 @@ static int asn1_parse_countersignature(fmap_t *map, const void **asn1data, unsig
                     if (asn1_expect_obj(map, &deeper.content, &deep.size, ASN1_TYPE_OBJECT_ID, lenof(OID_pkcs7_data), OID_pkcs7_data)) {
                         cli_dbgmsg("asn1_parse_countersignature: contentType != pkcs7-data, checking for timestampToken instead\n");
                         /* Some signatures use OID_timestampToken instead, so allow
-                     * that also (despite the 2008 spec saying that this value
-                     * must be pkcs7-data) */
+                         * that also (despite the 2008 spec saying that this value
+                         * must be pkcs7-data) */
                         deeper.content = backupPtr;
                         deep.size      = backupSize;
                         if (asn1_expect_obj(map, &deeper.content, &deep.size, ASN1_TYPE_OBJECT_ID, lenof(OID_timestampToken), OID_timestampToken)) {
@@ -1409,6 +1410,8 @@ static cl_error_t asn1_parse_mscat(struct cl_engine *engine, fmap_t *map, size_t
     void *hash_ctx;
     int result;
     cl_error_t ret = CL_EPARSE;
+    char *mod      = NULL;
+    char *exp      = NULL;
 
     cli_dbgmsg("in asn1_parse_mscat\n");
 
@@ -1563,11 +1566,10 @@ static cl_error_t asn1_parse_mscat(struct cl_engine *engine, fmap_t *map, size_t
                     while (x509) {
                         char raw_issuer[CRT_RAWMAXLEN * 2 + 1], raw_subject[CRT_RAWMAXLEN * 2 + 1], raw_serial[CRT_RAWMAXLEN * 3 + 1];
                         char issuer[SHA1_HASH_SIZE * 2 + 1], subject[SHA1_HASH_SIZE * 2 + 1], serial[SHA1_HASH_SIZE * 2 + 1];
-                        char mod[1024 + 1], exp[1024 + 1];
-                        int j = 1024;
+                        int j;
 
-                        fp_toradix_n(&x509->n, mod, 16, j + 1);
-                        fp_toradix_n(&x509->e, exp, 16, j + 1);
+                        mod = BN_bn2hex(x509->n);
+                        exp = BN_bn2hex(x509->e);
                         memset(raw_issuer, 0, CRT_RAWMAXLEN * 2 + 1);
                         memset(raw_subject, 0, CRT_RAWMAXLEN * 2 + 1);
                         memset(raw_serial, 0, CRT_RAWMAXLEN * 2 + 1);
@@ -1599,6 +1601,10 @@ static cl_error_t asn1_parse_mscat(struct cl_engine *engine, fmap_t *map, size_t
                         cli_dbgmsg("  raw_issuer: %s\n", raw_issuer);
 
                         x509 = x509->next;
+                        OPENSSL_free(mod);
+                        OPENSSL_free(exp);
+                        mod = NULL;
+                        exp = NULL;
                     }
                     x509 = newcerts.crts;
                 }
@@ -1625,7 +1631,7 @@ static cl_error_t asn1_parse_mscat(struct cl_engine *engine, fmap_t *map, size_t
                         cli_dbgmsg("asn1_parse_mscat: Found Authenticode certificate blocked by %s\n", crt->name ? crt->name : "(unnamed CRB rule)");
                         if (NULL != ctx) {
                             ret = cli_append_virus(ctx, crt->name ? crt->name : "(unnamed CRB rule)");
-                            if ((ret == CL_VIRUS) && !SCAN_ALLMATCHES) {
+                            if (ret == CL_VIRUS) {
                                 crtmgr_free(&newcerts);
                                 goto finish;
                             }
@@ -1669,10 +1675,6 @@ static cl_error_t asn1_parse_mscat(struct cl_engine *engine, fmap_t *map, size_t
                     break;
                 }
 
-                /* In the SCAN_ALLMATCHES case, we'd get here with
-                 * ret == CL_VIRUS if a match occurred but we wanted
-                 * to keep looping to look for other matches.  In that
-                 * case, bail here. */
                 if (CL_VIRUS == ret) {
                     crtmgr_free(&newcerts);
                     break;
@@ -2158,6 +2160,8 @@ static cl_error_t asn1_parse_mscat(struct cl_engine *engine, fmap_t *map, size_t
     } while (0);
 
 finish:
+    OPENSSL_free(mod);
+    OPENSSL_free(exp);
     if (CL_EPARSE == ret) {
         cli_dbgmsg("asn1_parse_mscat: failed to parse authenticode section\n");
     }
@@ -2168,7 +2172,7 @@ int asn1_load_mscat(fmap_t *map, struct cl_engine *engine)
 {
     struct cli_asn1 c;
     unsigned int size;
-    int i;
+    unsigned int i;
 
     // TODO As currently implemented, loading in a .cat file with -d requires
     // an accompanying .crb with trust entries that will cause the .cat
@@ -2218,7 +2222,7 @@ int asn1_load_mscat(fmap_t *map, struct cl_engine *engine)
             struct cli_asn1 tagval1, tagval2, tagval3;
             int hashed_obj_type;
             cli_crt_hashtype hashtype;
-            enum CLI_HASH_TYPE hm_hashtype;
+            cli_hash_type_t hm_hashtype;
             unsigned int hashsize;
 
             if (asn1_expect_objtype(map, tag.content, &tag.size, &tagval1, ASN1_TYPE_SEQUENCE))

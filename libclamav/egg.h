@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2019-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2019-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *
  *  EGG is an archive format created by ESTsoft used by their ALZip
  *  archiving software.
@@ -61,7 +61,6 @@ typedef struct cl_egg_metadata {
  */
 cl_error_t cli_egg_open(
     fmap_t* map,
-    size_t sfx_offset,
     void** hArchive,
     char*** comments,
     uint32_t* nComments);

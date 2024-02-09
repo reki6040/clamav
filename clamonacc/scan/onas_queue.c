@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2019-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2019-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *
  *  Authors: Mickey Sola
  *
@@ -30,6 +30,9 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <pthread.h>
+#if defined(__linux__)
+#include <sys/prctl.h>
+#endif
 #include <string.h>
 
 // libclamav
@@ -80,7 +83,7 @@ static cl_error_t onas_new_event_queue_node(struct onas_event_queue_node **node)
     return CL_SUCCESS;
 }
 
-static void *onas_init_event_queue()
+static void *onas_init_event_queue(void)
 {
 
     if (CL_EMEM == onas_new_event_queue_node(&g_onas_event_queue_head)) {
@@ -120,7 +123,7 @@ static void onas_destroy_event_queue_node(struct onas_event_queue_node *node)
     return;
 }
 
-static void onas_destroy_event_queue()
+static void onas_destroy_event_queue(void)
 {
 
     if (NULL == g_onas_event_queue_head) {
@@ -143,17 +146,27 @@ static void onas_destroy_event_queue()
 
 void *onas_scan_queue_th(void *arg)
 {
+    /* Set thread name for profiling and debuging */
+    const char thread_name[] = "clamonacc-sq";
+
+#if defined(__linux__)
+    /* Use prctl instead to prevent using _GNU_SOURCE flag and implicit declaration */
+    prctl(PR_SET_NAME, thread_name);
+#elif defined(__APPLE__) && defined(__MACH__)
+    pthread_setname_np(thread_name);
+#else
+    logg(LOGG_WARNING, "ClamScanQueue: Setting of the thread name is currently not supported on this system\n");
+#endif
 
     /* not a ton of use for context right now, but perhaps in the future we can pass in more options */
     struct onas_context *ctx = (struct onas_context *)arg;
     sigset_t sigset;
-    int ret;
 
     /* ignore all signals except SIGUSR2 */
     sigfillset(&sigset);
     sigdelset(&sigset, SIGUSR2);
     /* The behavior of a process is undefined after it ignores a
-	 * SIGFPE, SIGILL, SIGSEGV, or SIGBUS signal */
+     * SIGFPE, SIGILL, SIGSEGV, or SIGBUS signal */
     sigdelset(&sigset, SIGFPE);
     sigdelset(&sigset, SIGILL);
     sigdelset(&sigset, SIGSEGV);
@@ -162,15 +175,16 @@ void *onas_scan_queue_th(void *arg)
 #ifdef SIGBUS
     sigdelset(&sigset, SIGBUS);
 #endif
+    pthread_sigmask(SIG_SETMASK, &sigset, NULL);
 
-    logg("*ClamScanQueue: initializing event queue consumer ... (%d) threads in thread pool\n", ctx->maxthreads);
+    logg(LOGG_DEBUG, "ClamScanQueue: initializing event queue consumer ... (%d) threads in thread pool\n", ctx->maxthreads);
     onas_init_event_queue();
     threadpool thpool = thpool_init(ctx->maxthreads);
     g_thpool          = thpool;
 
     /* loop w/ onas_consume_event until we die */
     pthread_cleanup_push(onas_scan_queue_exit, NULL);
-    logg("*ClamScanQueue: waiting to consume events ...\n");
+    logg(LOGG_DEBUG, "ClamScanQueue: waiting to consume events ...\n");
     do {
         /* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
         /* onas_consume_event(thpool); */
@@ -181,7 +195,7 @@ void *onas_scan_queue_th(void *arg)
     pthread_cleanup_pop(1);
 }
 
-static int onas_queue_is_b_empty()
+static int onas_queue_is_b_empty(void)
 {
 
     if (g_onas_event_queue.head->next == g_onas_event_queue.tail) {
@@ -211,7 +225,7 @@ static int onas_consume_event(threadpool thpool, struct onas_context *ctx)
     popped_node->data->ctx                    = ctx;
     /* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
 
-	pthread_mutex_unlock(&onas_queue_lock);
+    pthread_mutex_unlock(&onas_queue_lock);
 
     thpool_add_work(thpool, (void *)onas_scan_worker, (void *)popped_node->data);
     onas_destroy_event_queue_node(popped_node);
@@ -248,7 +262,7 @@ cl_error_t onas_scan_queue_start(struct onas_context **ctx)
     int32_t thread_started = 1;
 
     if (!ctx || !*ctx) {
-        logg("*ClamScanQueue: unable to start clamonacc. (bad context)\n");
+        logg(LOGG_DEBUG, "ClamScanQueue: unable to start clamonacc. (bad context)\n");
         return CL_EARG;
     }
 
@@ -260,7 +274,7 @@ cl_error_t onas_scan_queue_start(struct onas_context **ctx)
 
     if (0 != thread_started) {
         /* Failed to create thread */
-        logg("*ClamScanQueue: Unable to start event consumer queue thread ... \n");
+        logg(LOGG_DEBUG, "ClamScanQueue: Unable to start event consumer queue thread ... \n");
         return CL_ECREAT;
     }
 
@@ -271,12 +285,12 @@ static void onas_scan_queue_exit(void *arg)
 {
     UNUSEDPARAM(arg);
 
-    logg("*ClamScanQueue: onas_scan_queue_exit()\n");
+    logg(LOGG_DEBUG, "ClamScanQueue: onas_scan_queue_exit()\n");
     if (g_thpool) {
         thpool_wait(g_thpool);
         thpool_destroy(g_thpool);
         g_thpool = NULL;
     }
     onas_destroy_event_queue();
-    logg("ClamScanQueue: stopped\n");
+    logg(LOGG_INFO, "ClamScanQueue: stopped\n");
 }

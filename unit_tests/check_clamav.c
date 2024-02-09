@@ -37,6 +37,31 @@ static int fpu_words = FPU_ENDIAN_INITME;
 #define EA06_SCAN strstr(file, "clam.ea06.exe")
 #define FALSE_NEGATIVE (EA06_SCAN && NO_FPU_ENDIAN)
 
+// Define SRCDIR and OBJDIR when not defined, for the sake of the IDE.
+#ifndef SRCDIR
+#define SRCDIR " should be defined by CMake "
+#endif
+#ifndef OBJDIR
+#define OBJDIR " should be defined by CMake "
+#endif
+
+static char *tmpdir;
+
+static void cl_setup(void)
+{
+    tmpdir = cli_gentemp(NULL);
+    mkdir(tmpdir, 0700);
+    ck_assert_msg(!!tmpdir, "cli_gentemp failed");
+}
+
+static void cl_teardown(void)
+{
+    /* can't call fail() functions in teardown, it can cause SEGV */
+    cli_rmdirs(tmpdir);
+    free(tmpdir);
+    tmpdir = NULL;
+}
+
 /* extern void cl_free(struct cl_engine *engine); */
 START_TEST(test_cl_free)
 {
@@ -169,14 +194,14 @@ END_TEST
 static int get_test_file(int i, char *file, unsigned fsize, unsigned long *size);
 static struct cl_engine *g_engine;
 
-/* int cl_scandesc(int desc, const char **virname, unsigned long int *scanned, const struct cl_engine *engine, const struct cl_limits *limits, struct cl_scan_options* options) */
+/* cl_error_t cl_scandesc(int desc, const char **virname, unsigned long int *scanned, const struct cl_engine *engine, const struct cl_limits *limits, struct cl_scan_options* options) */
 START_TEST(test_cl_scandesc)
 {
     const char *virname = NULL;
     char file[256];
     unsigned long size;
     unsigned long int scanned = 0;
-    int ret;
+    cl_error_t ret;
     struct cl_scan_options options;
 
     memset(&options, 0, sizeof(struct cl_scan_options));
@@ -386,15 +411,98 @@ START_TEST(test_cl_scandesc_callback_allscan)
 }
 END_TEST
 
-/* int cl_load(const char *path, struct cl_engine **engine, unsigned int *signo, unsigned int options) */
+/* cl_error_t cl_load(const char *path, struct cl_engine **engine, unsigned int *signo, unsigned int options) */
 START_TEST(test_cl_load)
 {
+    cl_error_t ret;
+    struct cl_engine *engine;
+    unsigned int sigs = 0;
+    const char *testfile;
+
+    ret = cl_init(CL_INIT_DEFAULT);
+    ck_assert_msg(ret == CL_SUCCESS, "cl_init failed: %s", cl_strerror(ret));
+
+    engine = cl_engine_new();
+    ck_assert_msg(engine != NULL, "cl_engine_new failed");
+
+    /* load test cvd */
+    testfile = SRCDIR PATHSEP "input" PATHSEP "freshclam_testfiles" PATHSEP "test-5.cvd";
+    ret      = cl_load(testfile, engine, &sigs, CL_DB_STDOPT);
+    ck_assert_msg(ret == CL_SUCCESS, "cl_load failed for: %s -- %s", testfile, cl_strerror(ret));
+    ck_assert_msg(sigs > 0, "No signatures loaded");
+
+    cl_engine_free(engine);
 }
 END_TEST
 
-/* int cl_cvdverify(const char *file) */
+/* cl_error_t cl_cvdverify(const char *file) */
 START_TEST(test_cl_cvdverify)
 {
+    cl_error_t ret;
+    const char *testfile;
+    char newtestfile[PATH_MAX];
+    FILE *orig_fs;
+    FILE *new_fs;
+    char cvd_bytes[5000];
+
+    // Should be able to verify this cvd
+    testfile = SRCDIR "/input/freshclam_testfiles/test-1.cvd";
+    ret      = cl_cvdverify(testfile);
+    ck_assert_msg(CL_SUCCESS == ret, "cl_cvdverify failed for: %s -- %s", testfile, cl_strerror(ret));
+
+    // Can't verify a cvd that doesn't exist
+    testfile = SRCDIR "/input/freshclam_testfiles/test-na.cvd";
+    ret      = cl_cvdverify(testfile);
+    ck_assert_msg(CL_EOPEN == ret, "cl_cvdverify should have failed for: %s -- %s", testfile, cl_strerror(ret));
+
+    // A cdiff is not a cvd. Cannot verify with cl_cvdverify!
+    testfile = SRCDIR "/input/freshclam_testfiles/test-2.cdiff";
+    ret      = cl_cvdverify(testfile);
+    ck_assert_msg(CL_ECVD == ret, "cl_cvdverify should have failed for: %s -- %s", testfile, cl_strerror(ret));
+
+    // Can't verify an hdb file
+    testfile = SRCDIR "/input/clamav.hdb";
+    ret      = cl_cvdverify(testfile);
+    ck_assert_msg(CL_ECVD == ret, "cl_cvdverify should have failed for: %s -- %s", testfile, cl_strerror(ret));
+
+    // Modify the cvd to make it invalid
+    sprintf(newtestfile, "%s/modified.cvd", tmpdir);
+
+    orig_fs = fopen(SRCDIR "/input/freshclam_testfiles/test-1.cvd", "rb");
+    ck_assert_msg(orig_fs != NULL, "Failed to open %s", testfile);
+
+    new_fs = fopen(newtestfile, "wb");
+    ck_assert_msg(new_fs != NULL, "Failed to open %s", newtestfile);
+
+    // Copy the first 5000 bytes
+    fread(cvd_bytes, 1, 5000, orig_fs);
+    fwrite(cvd_bytes, 1, 5000, new_fs);
+
+    fclose(orig_fs);
+    fclose(new_fs);
+
+    // Now verify the modified cvd
+    ret = cl_cvdverify(newtestfile);
+    ck_assert_msg(CL_EVERIFY == ret, "cl_cvdverify should have failed for: %s -- %s", newtestfile, cl_strerror(ret));
+}
+END_TEST
+
+/* cl_error_t cl_cvdunpack(const char *file, const char *dir, bool dont_verify) */
+START_TEST(test_cl_cvdunpack)
+{
+    cl_error_t ret;
+    char *utf8       = NULL;
+    size_t utf8_size = 0;
+    const char *testfile;
+
+    testfile = SRCDIR "/input/freshclam_testfiles/test-1.cvd";
+    ret      = cl_cvdunpack(testfile, tmpdir, true);
+    ck_assert_msg(CL_SUCCESS == ret, "cl_cvdunpack: failed for: %s -- %s", testfile, cl_strerror(ret));
+
+    // Can't unpack a cdiff
+    testfile = SRCDIR "/input/freshclam_testfiles/test-2.cdiff";
+    ret      = cl_cvdunpack(testfile, tmpdir, true);
+    ck_assert_msg(CL_ECVD == ret, "cl_cvdunpack: should have failed for: %s -- %s", testfile, cl_strerror(ret));
 }
 END_TEST
 
@@ -590,7 +698,7 @@ START_TEST(test_cl_scanmap_callback_handle_allscan)
     int fd = get_test_file(_i, file, sizeof(file), &size);
     /* intentionally use different way than scanners.c for testing */
     map = cl_fmap_open_handle(&fd, 0, size, pread_cb, 1);
-    ck_assert_msg(!!map, "cl_fmap_open_handle %s");
+    ck_assert(!!map);
 
     cli_dbgmsg("scanning (handle) allscan %s\n", file);
     ret = cl_scanmap_callback(map, file, &virname, &scanned, g_engine, &options, NULL);
@@ -666,7 +774,7 @@ START_TEST(test_cl_scanmap_callback_mem_allscan)
 
     /* intentionally use different way than scanners.c for testing */
     map = cl_fmap_open_memory(mem, size);
-    ck_assert_msg(!!map, "cl_fmap_open_mem %s");
+    ck_assert(!!map);
 
     cli_dbgmsg("scanning (mem) allscan %s\n", file);
     ret = cl_scanmap_callback(map, file, &virname, &scanned, g_engine, &options, NULL);
@@ -755,7 +863,7 @@ START_TEST(test_fmap_duplicate)
     ck_assert_msg(!!dup_map, "fmap_duplicate failed");
     ck_assert_msg(dup_map->nested_offset == 0, "dup_map nested_offset is incorrect: %zu", dup_map->nested_offset);
     ck_assert_msg(dup_map->len == 4, "dup_map len is incorrect: %zu", dup_map->len);
-    ck_assert_msg(dup_map->real_len == 6, "dup_map real len is incorrect: %zu", dup_map->real_len);
+    ck_assert_msg(dup_map->real_len == 4, "dup_map real len is incorrect: %zu", dup_map->real_len);
 
     bread = fmap_readn(dup_map, tmp, 0, 6);
     ck_assert(bread == 4);
@@ -769,7 +877,7 @@ START_TEST(test_fmap_duplicate)
     ck_assert_msg(!!dup_dup_map, "fmap_duplicate failed");
     ck_assert_msg(dup_dup_map->nested_offset == 0, "dup_dup_map nested_offset is incorrect: %zu", dup_dup_map->nested_offset);
     ck_assert_msg(dup_dup_map->len == 2, "dup_dup_map len is incorrect: %zu", dup_dup_map->len);
-    ck_assert_msg(dup_dup_map->real_len == 6, "dup_dup_map real len is incorrect: %zu", dup_dup_map->real_len);
+    ck_assert_msg(dup_dup_map->real_len == 2, "dup_dup_map real len is incorrect: %zu", dup_dup_map->real_len);
 
     bread = fmap_readn(dup_dup_map, tmp, 0, 6);
     ck_assert(bread == 2);
@@ -804,7 +912,7 @@ START_TEST(test_fmap_duplicate)
     ck_assert_msg(!!dup_dup_map, "fmap_duplicate failed");
     ck_assert_msg(dup_dup_map->nested_offset == 2, "dup_dup_map nested_offset is incorrect: %zu", dup_map->nested_offset);
     ck_assert_msg(dup_dup_map->len == 2, "dup_dup_map len is incorrect: %zu", dup_map->len);
-    ck_assert_msg(dup_dup_map->real_len == 6, "dup_dup_map real len is incorrect: %zu", dup_map->real_len);
+    ck_assert_msg(dup_dup_map->real_len == 4, "dup_dup_map real len is incorrect: %zu", dup_map->real_len);
 
     bread = fmap_readn(dup_dup_map, tmp, 0, 6);
     ck_assert(bread == 2);
@@ -832,7 +940,7 @@ START_TEST(test_fmap_duplicate_out_of_bounds)
     size_t bread = 0;
 
     map = cl_fmap_open_memory(map_data, sizeof(map_data));
-    ck_assert_msg(!!map, "cl_fmap_open_handle failed");
+    ck_assert_msg(!!map, "cl_fmap_open_memory failed");
 
     /*
      * Test 0-byte duplicate
@@ -842,7 +950,7 @@ START_TEST(test_fmap_duplicate_out_of_bounds)
     ck_assert_msg(!!dup_map, "fmap_duplicate failed");
     ck_assert_msg(dup_map->nested_offset == 0, "dup_map nested_offset is incorrect: %zu", dup_map->nested_offset);
     ck_assert_msg(dup_map->len == 0, "dup_map len is incorrect: %zu", dup_map->len);
-    ck_assert_msg(dup_map->real_len == map->len, "dup_map real len is incorrect: %zu", dup_map->real_len);
+    ck_assert_msg(dup_map->real_len == 0, "dup_map real len is incorrect: %zu", dup_map->real_len);
 
     bread = fmap_readn(dup_map, tmp, 0, 6);
     ck_assert(bread == 0);
@@ -902,7 +1010,7 @@ START_TEST(test_fmap_duplicate_out_of_bounds)
     ck_assert_msg(!!dup_map, "fmap_duplicate failed");
     ck_assert_msg(dup_map->nested_offset == 0, "dup_map nested_offset is incorrect: %zu", dup_map->nested_offset);
     ck_assert_msg(dup_map->len == 2, "dup_map len is incorrect: %zu", dup_map->len);
-    ck_assert_msg(dup_map->real_len == 6, "dup_map real len is incorrect: %zu", dup_map->real_len);
+    ck_assert_msg(dup_map->real_len == 2, "dup_map real len is incorrect: %zu", dup_map->real_len);
 
     bread = fmap_readn(dup_map, tmp, 0, 6);
     ck_assert(bread == 2);
@@ -919,7 +1027,7 @@ START_TEST(test_fmap_duplicate_out_of_bounds)
     ck_assert_msg(!!dup_dup_map, "fmap_duplicate failed");
     ck_assert_msg(dup_dup_map->nested_offset == 1, "dup_dup_map nested_offset is incorrect: %zu", dup_dup_map->nested_offset);
     ck_assert_msg(dup_dup_map->len == 1, "dup_dup_map len is incorrect: %zu", dup_dup_map->len);
-    ck_assert_msg(dup_dup_map->real_len == 6, "dup_dup_map real len is incorrect: %zu", dup_dup_map->real_len);
+    ck_assert_msg(dup_dup_map->real_len == 2, "dup_dup_map real len is incorrect: %zu", dup_dup_map->real_len);
 
     bread = fmap_readn(dup_dup_map, tmp, 0, 6);
     ck_assert(bread == 1);
@@ -938,7 +1046,7 @@ START_TEST(test_fmap_duplicate_out_of_bounds)
     ck_assert_msg(!!dup_dup_map, "fmap_duplicate failed");
     ck_assert_msg(dup_dup_map->nested_offset == 2, "dup_dup_map nested_offset is incorrect: %zu", dup_dup_map->nested_offset);
     ck_assert_msg(dup_dup_map->len == 0, "dup_dup_map len is incorrect: %zu", dup_dup_map->len);
-    ck_assert_msg(dup_dup_map->real_len == 6, "dup_dup_map real len is incorrect: %zu", dup_dup_map->real_len);
+    ck_assert_msg(dup_dup_map->real_len == 2, "dup_dup_map real len is incorrect: %zu", dup_dup_map->real_len);
 
     bread = fmap_readn(dup_dup_map, tmp, 0, 6);
     ck_assert(bread == 0);
@@ -964,6 +1072,245 @@ START_TEST(test_fmap_duplicate_out_of_bounds)
 }
 END_TEST
 
+#define FMAP_TEST_STRING_PART_1 "Hello, World!\0"
+#define FMAP_TEST_STRING_PART_2 "Don't be a stranger!\nBe my friend!\0"
+#define FMAP_TEST_STRING FMAP_TEST_STRING_PART_1 FMAP_TEST_STRING_PART_2
+
+/**
+ * @brief convenience function for testing
+ *
+ * the map data should:
+ *  - be at least 6 bytes long
+ *  - include a '\n' in the middle.
+ *  - plus one '\0' after that.
+ *  - and end with '\0'.
+ *
+ * @param map           The map.
+ * @param map_data      A copy of the expected map data.
+ * @param map_data_len  The length of the expected map data.
+ */
+static void fmap_api_tests(cl_fmap_t *map, const char *map_data, size_t map_data_len, const char *msg)
+{
+    char *tmp    = NULL;
+    size_t bread = 0;
+    const char *ptr, *ptr_2;
+    size_t at;
+    size_t lenout;
+    const char *ptr_after_newline;
+    size_t offset_after_newline;
+
+    tmp = calloc(map_data_len + 1, 1);
+    ck_assert_msg(tmp != NULL, "%s", msg);
+
+    /*
+     * Test fmap_readn()
+     */
+    bread = fmap_readn(map, tmp, 0, 5);
+    ck_assert_msg(bread == 5, "%s: unexpected # bytes read: %zu", msg, bread);
+    ck_assert_msg(0 == memcmp(map_data, tmp, 5), "%s: %s != %s", msg, map_data, tmp);
+
+    /*
+     * Test fmap_need_offstr()
+     */
+    ptr = fmap_need_offstr(map, 0, 5);
+    ck_assert_msg(ptr == NULL, "%s: fmap_need_offstr should not have found a string terminator in the first 6 bytes: %s", msg, ptr);
+
+    /*
+     * Test fmap_need_offstr()
+     */
+    // This API must find a NULL-terminating byte
+    ptr = fmap_need_offstr(map, 0, map_data_len + 5); // request at least as much as exists.
+    ck_assert_msg(ptr != NULL, "%s: fmap_need_offstr failed to find a string.", msg);
+    ck_assert_msg(*ptr == map_data[0], "%s: %c != %c", msg, *ptr, map_data[0]);
+
+    /*
+     * Test fmap_gets()
+     */
+    // first lets find the offset of the '\n' in this data.
+    ptr_after_newline = memchr(map_data, '\n', map_data_len);
+    ck_assert_msg(ptr_after_newline != NULL, "%s", msg);
+    offset_after_newline = (size_t)ptr_after_newline - (size_t)map_data + 1;
+
+    // This API will stop after newline or EOF, but not a NULL byte.
+    memset(tmp, 0xff, map_data_len + 1); // pre-load `tmp` with 0xff so our NULL check later is guaranteed to be meaningful.
+    at  = 3;                             // start at offset 3
+    ptr = fmap_gets(map, tmp, &at, map_data_len + 1);
+    ck_assert_msg(ptr == tmp, "%s: %zu != %zu", msg, (size_t)ptr, (size_t)tmp);
+    ck_assert_msg(at == offset_after_newline, "%s: %zu != %zu", msg, at, offset_after_newline); // at should point to the character after '\n'
+    ck_assert_msg(0 == memcmp(map_data + 3, tmp, offset_after_newline - 3), "%s: fmap_gets read: %s", msg, tmp);
+    ck_assert_msg(tmp[offset_after_newline - 3] == '\0', "%s: data read by fmap_gets, but that value is '0x%02x'", msg, tmp[offset_after_newline - 3]); // should have a null terminator afterwards.
+
+    memset(tmp, 0xff, map_data_len + 1); // pre-load `tmp` with 0xff so our NULL check later is guaranteed to be meaningful.
+    // continue from previous read, ..
+    ptr = fmap_gets(map, tmp, &at, map_data_len + 1); // read the rest of the string
+    ck_assert_msg(ptr == tmp, "%s: fmap_gets should return dst pointer but returned: %zu", msg, (size_t)ptr);
+    ck_assert_msg(at == map_data_len, "%s: %zu != %zu", msg, at, map_data_len); // at should point just past end of string
+    ck_assert_msg(0 == memcmp(map_data + offset_after_newline, tmp, map_data_len - offset_after_newline), "%s", msg);
+    ck_assert_msg(tmp[map_data_len - offset_after_newline] == '\0', "%s: data read by fmap_gets, but that value is '0x%02x'", msg, tmp[map_data_len - offset_after_newline]); // should have a null terminator afterwards.
+
+    /*
+     * Test fmap_need_off_once_len()
+     */
+    ptr = fmap_need_off_once_len(map, 0, map_data_len + 50, &lenout); // request more bytes than is available
+    ck_assert_msg(ptr != NULL, "%s: failed to get pointer into map :(", msg);
+    ck_assert_msg(lenout == map_data_len, "%s: %zu != %zu", msg, lenout, map_data_len);
+    ck_assert_msg(0 == memcmp(ptr, map_data, offset_after_newline), "%s", msg);
+
+    /*
+     * Test fmap_need_off_once()
+     */
+    ptr = fmap_need_off_once(map, 0, map_data_len + 50); // request more bytes than is available
+    ck_assert_msg(ptr == NULL, "%s: should have failed to get pointer into map :(", msg);
+
+    ptr = fmap_need_off_once(map, 0, offset_after_newline);
+    ck_assert_msg(ptr != NULL, "%s: failed to get pointer into map :(", msg);
+    ck_assert_msg(0 == memcmp(ptr, map_data, offset_after_newline), "%s", msg);
+
+    /*
+     * Test fmap_need_ptr_once()
+     */
+    ptr_2 = fmap_need_ptr_once(map, ptr, map_data_len + 50); // request more bytes than is available
+    ck_assert_msg(ptr_2 == NULL, "%s: should have failed to get pointer into map :(", msg);
+
+    ptr_2 = fmap_need_ptr_once(map, ptr, offset_after_newline);
+    ck_assert_msg(ptr_2 != NULL, "%s: failed to get pointer into map :(", msg);
+    ck_assert_msg(0 == memcmp(ptr_2, map_data, offset_after_newline), "%s", msg);
+
+    free(tmp);
+}
+
+START_TEST(test_fmap_assorted_api)
+{
+    cl_fmap_t *mem_based_map     = NULL;
+    cl_fmap_t *fd_based_map      = NULL;
+    cl_fmap_t *fd_based_dup_map  = NULL;
+    cl_fmap_t *dup_map           = NULL;
+    char *fmap_dump_filepath     = NULL;
+    int fmap_dump_fd             = -1;
+    char *dup_fmap_dump_filepath = NULL;
+    int dup_fmap_dump_fd         = -1;
+
+    mem_based_map = cl_fmap_open_memory(FMAP_TEST_STRING, sizeof(FMAP_TEST_STRING));
+    ck_assert_msg(!!mem_based_map, "cl_fmap_open_memory failed");
+    cli_dbgmsg("created fmap from memory/buffer\n");
+
+    /*
+     * Test a few things on the original map.
+     */
+    fmap_api_tests(mem_based_map, FMAP_TEST_STRING, sizeof(FMAP_TEST_STRING), "mem map");
+
+    /*
+     * Test fmap_dump_to_file()
+     */
+    fmap_dump_to_file(mem_based_map, NULL, NULL, &fmap_dump_filepath, &fmap_dump_fd, 0, mem_based_map->len);
+    ck_assert_msg(fmap_dump_fd != -1, "fmap_dump_fd failed");
+    cli_dbgmsg("dumped map to %s\n", fmap_dump_filepath);
+
+    fd_based_map = fmap(fmap_dump_fd, 0, 0, NULL); // using fmap() instead of cl_fmap_open_handle() because I don't want to have to stat the the file to figure out the len. fmap() does that for us.
+    ck_assert_msg(!!fd_based_map, "cl_fmap_open_handle failed");
+    cli_dbgmsg("created fmap from file descriptor\n");
+
+    /*
+     * Test those same things things on an fmap created with an fd that is a dumped copy of the original map.
+     */
+    fmap_api_tests(fd_based_map, FMAP_TEST_STRING, sizeof(FMAP_TEST_STRING), "handle map");
+
+    /*
+     * Test duplicate of mem-based map at an offset
+     */
+    cli_dbgmsg("duplicating part way into mem-based fmap\n");
+    dup_map = fmap_duplicate(
+        mem_based_map,
+        sizeof(FMAP_TEST_STRING_PART_1) - 1, // minus automatic null terminator
+        mem_based_map->len - (sizeof(FMAP_TEST_STRING_PART_1) - 1),
+        "offset duplicate");
+    ck_assert_msg(!!dup_map, "fmap_duplicate failed");
+    ck_assert_msg(dup_map->nested_offset == sizeof(FMAP_TEST_STRING_PART_1) - 1, "%zu != %zu", dup_map->nested_offset, sizeof(FMAP_TEST_STRING_PART_1) - 1);
+    ck_assert_msg(dup_map->len == sizeof(FMAP_TEST_STRING_PART_2), "%zu != %zu", dup_map->len, sizeof(FMAP_TEST_STRING_PART_2));
+    ck_assert_msg(dup_map->real_len == sizeof(FMAP_TEST_STRING), "%zu != %zu", dup_map->real_len, sizeof(FMAP_TEST_STRING));
+
+    /*
+     * Test those same things things on an fmap created with an fd that is a dumped copy of the original map.
+     */
+    fmap_api_tests(dup_map, FMAP_TEST_STRING_PART_2, sizeof(FMAP_TEST_STRING_PART_2), "nested mem map");
+
+    /* Ok, we're done with this dup_map */
+    cli_dbgmsg("freeing dup_map\n");
+    free_duplicate_fmap(dup_map);
+    dup_map = NULL;
+
+    /*
+     * Test duplicate of handle-based map at an offset
+     */
+    cli_dbgmsg("duplicating part way into handle-based fmap\n");
+    dup_map = fmap_duplicate(
+        fd_based_map,
+        sizeof(FMAP_TEST_STRING_PART_1) - 1, // minus automatic null terminator
+        fd_based_map->len - (sizeof(FMAP_TEST_STRING_PART_1) - 1),
+        "offset duplicate");
+    ck_assert_msg(!!dup_map, "fmap_duplicate failed");
+    ck_assert_msg(dup_map->nested_offset == sizeof(FMAP_TEST_STRING_PART_1) - 1, "%zu != %zu", dup_map->nested_offset, sizeof(FMAP_TEST_STRING_PART_1) - 1);
+    ck_assert_msg(dup_map->len == sizeof(FMAP_TEST_STRING_PART_2), "%zu != %zu", dup_map->len, sizeof(FMAP_TEST_STRING_PART_2));
+    ck_assert_msg(dup_map->real_len == sizeof(FMAP_TEST_STRING), "%zu != %zu", dup_map->real_len, sizeof(FMAP_TEST_STRING));
+
+    /*
+     * Test those same things things on an fmap created with an fd that is a dumped copy of the original map.
+     */
+    fmap_api_tests(dup_map, FMAP_TEST_STRING_PART_2, sizeof(FMAP_TEST_STRING_PART_2), "nested handle map");
+
+    /*
+     * Test fmap_dump_to_file() on a nested fmap
+     */
+    fmap_dump_to_file(dup_map, NULL, NULL, &dup_fmap_dump_filepath, &dup_fmap_dump_fd, 0, dup_map->len);
+    ck_assert_msg(dup_fmap_dump_fd != -1, "fmap_dump_fd failed");
+    cli_dbgmsg("dumped map to %s\n", dup_fmap_dump_filepath);
+
+    /* Ok, we're done with this dup_map */
+    cli_dbgmsg("freeing dup_map\n");
+    free_duplicate_fmap(dup_map);
+    dup_map = NULL;
+
+    /* We can close the fd-based map now that we're done with it's duplicate */
+    cl_fmap_close(fd_based_map);
+    fd_based_map = NULL;
+
+    close(fmap_dump_fd);
+    fmap_dump_fd = -1;
+
+    cli_unlink(fmap_dump_filepath);
+    free(fmap_dump_filepath);
+    fmap_dump_filepath = NULL;
+
+    /* And we can close the original mem-based map as well */
+    cl_fmap_close(mem_based_map);
+    mem_based_map = NULL;
+
+    /*
+     * Let's make an fmap of the dumped nested map, and run the tests to verify that everything is as expected.
+     */
+    fd_based_dup_map = fmap(dup_fmap_dump_fd, 0, 0, NULL); // using fmap() instead of cl_fmap_open_handle() because I don't want to have to stat the the file to figure out the len. fmap() does that for us.
+    ck_assert_msg(!!fd_based_dup_map, "cl_fmap_open_handle failed");
+    cli_dbgmsg("created fmap from file descriptor\n");
+
+    /*
+     * Test those same things things on an fmap created with an fd that is a dumped copy of the original map.
+     */
+    fmap_api_tests(fd_based_dup_map, FMAP_TEST_STRING_PART_2, sizeof(FMAP_TEST_STRING_PART_2), "dumped nested handle map");
+
+    /* Ok, we're done with the fmap based on the dumped dup_map */
+    cli_dbgmsg("freeing fmap of dumped dup_map\n");
+    cl_fmap_close(fd_based_dup_map);
+    fd_based_dup_map = NULL;
+
+    close(dup_fmap_dump_fd);
+    dup_fmap_dump_fd = -1;
+
+    cli_unlink(dup_fmap_dump_filepath);
+    free(dup_fmap_dump_filepath);
+    dup_fmap_dump_filepath = NULL;
+}
+END_TEST
+
 static Suite *test_cl_suite(void)
 {
     Suite *s           = suite_create("cl_suite");
@@ -972,6 +1319,7 @@ static Suite *test_cl_suite(void)
     char *user_timeout = NULL;
     int expect         = expected_testfiles;
     suite_add_tcase(s, tc_cl);
+    tcase_add_checked_fixture(tc_cl, cl_setup, cl_teardown);
     tcase_add_test(tc_cl, test_cl_free);
     tcase_add_test(tc_cl, test_cl_build);
     tcase_add_test(tc_cl, test_cl_debug);
@@ -1015,6 +1363,7 @@ static Suite *test_cl_suite(void)
 #endif
     tcase_add_loop_test(tc_cl_scan, test_fmap_duplicate, 0, expect);
     tcase_add_loop_test(tc_cl_scan, test_fmap_duplicate_out_of_bounds, 0, expect);
+    tcase_add_loop_test(tc_cl_scan, test_fmap_assorted_api, 0, expect);
 
     user_timeout = getenv("T");
     if (user_timeout) {
@@ -1044,7 +1393,7 @@ static void data_setup(void)
     ck_assert_msg(!!data2, "unable to allocate memory for fixture");
     p = data;
     /* make multiple copies of le_data, we need to run readint tests in a loop, so we need
-         * to give it some data to run it on */
+     * to give it some data to run it on */
     for (i = 0; i < DATA_REP; i++) {
         memcpy(p, le_data, sizeof(le_data));
         p += sizeof(le_data);
@@ -1588,7 +1937,7 @@ void diff_file_mem(int fd, const char *ref, size_t len)
     size_t p, reflen = len;
     char *buf = cli_malloc(len);
 
-    ck_assert_msg(!!buf, "unable to malloc buffer: %d", len);
+    ck_assert_msg(!!buf, "unable to malloc buffer: %zu", len);
     p = read(fd, buf, len);
     ck_assert_msg(p == len, "file is smaller: %lu, expected: %lu", p, len);
     p = 0;
@@ -1616,7 +1965,7 @@ void diff_files(int fd, int ref_fd)
     ck_assert_msg(siz != -1, "lseek failed");
 
     ref = cli_malloc(siz);
-    ck_assert_msg(!!ref, "unable to malloc buffer: %d", siz);
+    ck_assert_msg(!!ref, "unable to malloc buffer: " STDi64, (int64_t)siz);
 
     ck_assert_msg(lseek(ref_fd, 0, SEEK_SET) == 0, "lseek failed");
     nread = read(ref_fd, ref, siz);
@@ -1706,7 +2055,9 @@ int main(void)
 
     srunner_set_log(sr, OBJDIR PATHSEP "test.log");
     if (freopen(OBJDIR PATHSEP "test-stderr.log", "w+", stderr) == NULL) {
-        fputs("Unable to redirect stderr!\n", stderr);
+        // The stderr FILE pointer may be closed by `freopen()` even if redirecting to the log file files.
+        // So we will output the error message to stdout instead.
+        fputs("Unable to redirect stderr!\n", stdout);
     }
     cl_debug();
 

@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2015-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2015-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2009 Sourcefire, Inc.
  *
  *  Authors: Tomasz Kojm, aCaB
@@ -29,15 +29,6 @@
 
 #define ONAS_DEFAULT_PING_INTERVAL 1
 #define ONAS_DEFAULT_PING_ATTEMPTS 31
-
-enum {
-    CONT,
-    MULTI,
-    STREAM,
-    FILDES,
-    ALLMATCH,
-    MAX_SCANTYPE = ALLMATCH
-};
 
 void onas_print_server_version(struct onas_context **ctx);
 /* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */

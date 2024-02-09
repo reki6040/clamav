@@ -1,4 +1,4 @@
-# Copyright (C) 2020-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+# Copyright (C) 2020-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
 
 include_directories(
     ${LIBXML2_INCLUDE_DIR}
@@ -157,107 +157,12 @@ target_link_libraries( yara
         PCRE2::pcre2
         JSONC::jsonc )
 
-add_library( tomsfastmath OBJECT )
-target_sources( tomsfastmath
-    PRIVATE
-        tomsfastmath/addsub/fp_add.c
-        tomsfastmath/addsub/fp_add_d.c
-        tomsfastmath/addsub/fp_addmod.c
-        tomsfastmath/addsub/fp_cmp.c
-        tomsfastmath/addsub/fp_cmp_d.c
-        tomsfastmath/addsub/fp_cmp_mag.c
-        tomsfastmath/addsub/fp_sub.c
-        tomsfastmath/addsub/fp_sub_d.c
-        tomsfastmath/addsub/fp_submod.c
-        tomsfastmath/addsub/s_fp_add.c
-        tomsfastmath/addsub/s_fp_sub.c
-        tomsfastmath/bin/fp_radix_size.c
-        tomsfastmath/bin/fp_read_radix.c
-        tomsfastmath/bin/fp_read_signed_bin.c
-        tomsfastmath/bin/fp_read_unsigned_bin.c
-        tomsfastmath/bin/fp_reverse.c
-        tomsfastmath/bin/fp_s_rmap.c
-        tomsfastmath/bin/fp_signed_bin_size.c
-        tomsfastmath/bin/fp_to_signed_bin.c
-        tomsfastmath/bin/fp_to_unsigned_bin.c
-        tomsfastmath/bin/fp_toradix.c
-        tomsfastmath/bin/fp_toradix_n.c
-        tomsfastmath/bin/fp_unsigned_bin_size.c
-        tomsfastmath/bit/fp_cnt_lsb.c
-        tomsfastmath/bit/fp_count_bits.c
-        tomsfastmath/bit/fp_div_2.c
-        tomsfastmath/bit/fp_div_2d.c
-        tomsfastmath/bit/fp_lshd.c
-        tomsfastmath/bit/fp_mod_2d.c
-        tomsfastmath/bit/fp_rshd.c
-        tomsfastmath/divide/fp_div.c
-        tomsfastmath/divide/fp_div_d.c
-        tomsfastmath/divide/fp_mod.c
-        tomsfastmath/divide/fp_mod_d.c
-        tomsfastmath/exptmod/fp_2expt.c
-        tomsfastmath/exptmod/fp_exptmod.c
-        tomsfastmath/misc/fp_ident.c
-        tomsfastmath/misc/fp_set.c
-        tomsfastmath/mont/fp_montgomery_calc_normalization.c
-        tomsfastmath/mont/fp_montgomery_reduce.c
-        tomsfastmath/mont/fp_montgomery_setup.c
-        tomsfastmath/mul/fp_mul.c
-        tomsfastmath/mul/fp_mul_comba.c
-        tomsfastmath/mul/fp_mul_2.c
-        tomsfastmath/mul/fp_mul_2d.c
-        tomsfastmath/mul/fp_mul_comba_12.c
-        tomsfastmath/mul/fp_mul_comba_17.c
-        tomsfastmath/mul/fp_mul_comba_20.c
-        tomsfastmath/mul/fp_mul_comba_24.c
-        tomsfastmath/mul/fp_mul_comba_28.c
-        tomsfastmath/mul/fp_mul_comba_3.c
-        tomsfastmath/mul/fp_mul_comba_32.c
-        tomsfastmath/mul/fp_mul_comba_4.c
-        tomsfastmath/mul/fp_mul_comba_48.c
-        tomsfastmath/mul/fp_mul_comba_6.c
-        tomsfastmath/mul/fp_mul_comba_64.c
-        tomsfastmath/mul/fp_mul_comba_7.c
-        tomsfastmath/mul/fp_mul_comba_8.c
-        tomsfastmath/mul/fp_mul_comba_9.c
-        tomsfastmath/mul/fp_mul_comba_small_set.c
-        tomsfastmath/mul/fp_mul_d.c
-        tomsfastmath/mul/fp_mulmod.c
-        tomsfastmath/numtheory/fp_invmod.c
-        tomsfastmath/sqr/fp_sqr.c
-        tomsfastmath/sqr/fp_sqr_comba_12.c
-        tomsfastmath/sqr/fp_sqr_comba_17.c
-        tomsfastmath/sqr/fp_sqr_comba_20.c
-        tomsfastmath/sqr/fp_sqr_comba_24.c
-        tomsfastmath/sqr/fp_sqr_comba_28.c
-        tomsfastmath/sqr/fp_sqr_comba_3.c
-        tomsfastmath/sqr/fp_sqr_comba_32.c
-        tomsfastmath/sqr/fp_sqr_comba_4.c
-        tomsfastmath/sqr/fp_sqr_comba_48.c
-        tomsfastmath/sqr/fp_sqr_comba_6.c
-        tomsfastmath/sqr/fp_sqr_comba_64.c
-        tomsfastmath/sqr/fp_sqr_comba_7.c
-        tomsfastmath/sqr/fp_sqr_comba_8.c
-        tomsfastmath/sqr/fp_sqr_comba_9.c
-        tomsfastmath/sqr/fp_sqr_comba_generic.c
-        tomsfastmath/sqr/fp_sqr_comba_small_set.c
-        tomsfastmath/sqr/fp_sqrmod.c
-    PUBLIC
-        bignum.h
-        bignum_fast.h )
-target_include_directories( tomsfastmath
-    PRIVATE ${CMAKE_BINARY_DIR}
-    PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR} )
-set_target_properties( tomsfastmath PROPERTIES
-    COMPILE_FLAGS "${WARNCFLAGS}" )
-
 # Bytecode Runtime
 add_library( bytecode_runtime OBJECT )
 if(LLVM_FOUND)
     target_sources( bytecode_runtime
         PRIVATE
             c++/detect.cpp
-            c++/ClamBCRTChecks.cpp
-            c++/PointerTracking.cpp
             c++/bytecode2llvm.cpp
             bytecode_priv.h
             bytecode.h )
@@ -309,7 +214,7 @@ set(LIBCLAMAV_SOURCES
     matcher-ac.c        matcher-ac.h
     matcher-bm.c        matcher-bm.h
     matcher-byte-comp.c matcher-byte-comp.h
-    matcher-hash.c      matcher-hash.h
+    matcher-hash.c      matcher-hash.h      matcher-hash-types.h
     matcher-pcre.c      matcher-pcre.h
     matcher.c           matcher.h
     regex_pcre.c        regex_pcre.h
@@ -490,6 +395,8 @@ set(LIBCLAMAV_SOURCES
     tiff.c              tiff.h
     # GIF image format checker
     gif.c               gif.h
+    # UDF partition
+    udf.c               udf.h
 )
 
 if(ENABLE_SHARED_LIB)
@@ -517,9 +424,9 @@ if(ENABLE_SHARED_LIB)
             regex
             lzma_sdk
             yara
-            tomsfastmath
             bytecode_runtime
             ${LIBMSPACK}
+            ClamAV::libclamav_rust
             ClamAV::libunrar_iface_iface
             OpenSSL::SSL
             OpenSSL::Crypto
@@ -534,7 +441,7 @@ if(ENABLE_SHARED_LIB)
             PUBLIC
                 PThreadW32::pthreadw32
                 ClamAV::win32_compat
-                wsock32 ws2_32 )
+                wsock32 ws2_32 bcrypt )
     else()
         target_link_libraries( clamav
             PUBLIC
@@ -546,14 +453,25 @@ if(ENABLE_SHARED_LIB)
     set_target_properties( clamav PROPERTIES
         COMPILE_FLAGS "${WARNCFLAGS}"
         VERSION ${LIBCLAMAV_VERSION} SOVERSION ${LIBCLAMAV_SOVERSION} )
+
+    if (APPLE AND CLAMAV_SIGN_FILE)
+        set_target_properties( clamav PROPERTIES
+            XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY ${CODE_SIGN_IDENTITY}
+            XCODE_ATTRIBUTE_DEVELOPMENT_TEAM ${DEVELOPMENT_TEAM_ID}
+        )
+    endif()
+
     if(WIN32)
         set_target_properties( clamav PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON )
     else()
         target_link_libraries( clamav PUBLIC Iconv::Iconv )
     endif()
+    if(UNIX AND NOT APPLE)
+        target_link_options( clamav PRIVATE "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/libclamav.map")
+    endif()
     if(WIN32)
         install( TARGETS clamav DESTINATION . COMPONENT libraries )
-
+        install( FILES $<TARGET_PDB_FILE:clamav> DESTINATION . OPTIONAL COMPONENT libraries )
         # Also install shared library (DLL) dependencies
         install( CODE [[
             file(GET_RUNTIME_DEPENDENCIES
@@ -618,9 +536,9 @@ if(ENABLE_STATIC_LIB)
             regex
             lzma_sdk
             yara
-            tomsfastmath
             bytecode_runtime
             ${LIBMSPACK}
+            ClamAV::libclamav_rust
             OpenSSL::SSL
             OpenSSL::Crypto
             ZLIB::ZLIB
@@ -636,7 +554,7 @@ if(ENABLE_STATIC_LIB)
             PUBLIC
                 PThreadW32::pthreadw32
                 ClamAV::win32_compat
-                wsock32 ws2_32 )
+                wsock32 ws2_32 bcrypt )
     else()
         target_link_libraries( clamav_static
             PUBLIC

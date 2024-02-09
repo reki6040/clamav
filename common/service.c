@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2021-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2008-2010 Gianluigi Tiesi <sherpya@netfarm.it>
  *
  *  Authors: Gianluigi Tiesi
@@ -161,7 +161,7 @@ void svc_ready(void)
     svc.dwCheckPoint = 0;
 
     if (!SetServiceStatus(svc_handle, &svc)) {
-        logg("[service] SetServiceStatus() failed with %d\n", GetLastError());
+        logg(LOGG_INFO, "[service] SetServiceStatus() failed with %d\n", GetLastError());
         exit(1);
     }
 }
@@ -213,12 +213,12 @@ void WINAPI ServiceMain(DWORD dwArgc, LPSTR *lpszArgv)
     svc.dwWaitHint                = 0;
 
     if (!(svc_handle = RegisterServiceCtrlHandlerA(DT->lpServiceName, ServiceCtrlHandler))) {
-        logg("[service] RegisterServiceCtrlHandler() failed with %d\n", GetLastError());
+        logg(LOGG_INFO, "[service] RegisterServiceCtrlHandler() failed with %d\n", GetLastError());
         exit(1);
     }
 
     if (!SetServiceStatus(svc_handle, &svc)) {
-        logg("[service] SetServiceStatus() failed with %d\n", GetLastError());
+        logg(LOGG_INFO, "[service] SetServiceStatus() failed with %d\n", GetLastError());
         exit(1);
     }
 

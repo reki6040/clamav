@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2020-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2020-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *
  *  Author: Mickey Sola
  *
@@ -31,4 +31,4 @@ struct onas_sock_t {
 };
 
 cl_error_t onas_set_sock_only_once(struct onas_context *ctx);
-int onas_get_sockd();
+int onas_get_sockd(void);

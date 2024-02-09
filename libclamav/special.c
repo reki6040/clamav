@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2007-2013 Sourcefire, Inc.
  *
  *  Authors: Trog, Török Edvin
@@ -41,7 +41,7 @@
 #include "matcher.h"
 
 /* NOTE: Photoshop stores data in BIG ENDIAN format, this is the opposite
-	to virtually everything else */
+        to virtually everything else */
 
 #define special_endian_convert_16(v) be16_to_host(v)
 #define special_endian_convert_32(v) be32_to_host(v)
@@ -50,7 +50,7 @@ int cli_check_mydoom_log(cli_ctx *ctx)
 {
     const uint32_t *record;
     uint32_t check, key;
-    fmap_t *map         = *ctx->fmap;
+    fmap_t *map         = ctx->fmap;
     unsigned int blocks = map->len / (8 * 4);
 
     cli_dbgmsg("in cli_check_mydoom_log()\n");
@@ -89,7 +89,7 @@ int cli_check_mydoom_log(cli_ctx *ctx)
     if ((~check) != key)
         return CL_CLEAN;
 
-    return cli_append_virus(ctx, "Heuristics.Worm.Mydoom.M.log");
+    return cli_append_potentially_unwanted(ctx, "Heuristics.Worm.Mydoom.M.log");
 }
 
 static uint32_t riff_endian_convert_32(uint32_t value, int big_endian)
@@ -148,10 +148,10 @@ static int riff_read_chunk(fmap_t *map, off_t *offset, int big_endian, int rec_l
         return 0;
     }
     /* FIXME: WTF!?
-	if (lseek(fd, offset, SEEK_SET) != offset) {
-		return 2;
-	}
-	*/
+        if (lseek(fd, offset, SEEK_SET) != offset) {
+                return 2;
+        }
+        */
     return 1;
 }
 
@@ -160,7 +160,7 @@ int cli_check_riff_exploit(cli_ctx *ctx)
     const uint32_t *buf;
     int big_endian, retval;
     off_t offset;
-    fmap_t *map = *ctx->fmap;
+    fmap_t *map = ctx->fmap;
 
     cli_dbgmsg("in cli_check_riff_exploit()\n");
 
@@ -324,11 +324,11 @@ int cli_detect_swizz(struct swizz_stats *stats)
             uint32_t v = gn[i];
             gn[i]      = (v << 15) / all;
             if (cli_debug_flag)
-                fprintf(stderr, "%lu, ", (unsigned long)gn[i]);
+                cli_eprintf("%lu, ", (unsigned long)gn[i]);
         }
         global_swizz = swizz_j48_global(gn) ? CL_VIRUS : CL_CLEAN;
         if (cli_debug_flag) {
-            fprintf(stderr, "\n");
+            cli_eprintf("\n");
             cli_dbgmsg("cli_detect_swizz: global: %s\n", global_swizz ? "suspicious" : "clean");
         }
     }

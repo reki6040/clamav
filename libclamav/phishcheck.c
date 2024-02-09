@@ -1,7 +1,7 @@
 /*
  *  Detect phishing, based on URL spoofing detection.
  *
- *  Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2007-2013 Sourcefire, Inc.
  *
  *  Authors: Török Edvin
@@ -211,6 +211,7 @@ static void url_check_init(struct url_check* urls)
     string_init_c(&urls->realLink, NULL);
     string_init_c(&urls->displayLink, NULL);
     string_init_c(&urls->pre_fixup.pre_displayLink, NULL);
+    urls->flags = 0;
 }
 
 /* string reference counting implementation,
@@ -264,7 +265,7 @@ static int string_assign_concatenated(struct string* dest, const char* prefix, c
         cli_errmsg("Phishcheck: Unable to allocate memory for string_assign_concatenated\n");
         return CL_EMEM;
     }
-    strncpy(ret, prefix, prefix_len);
+    strncpy(ret, prefix, prefix_len + end - begin + 1);
     strncpy(ret + prefix_len, begin, end - begin);
     ret[prefix_len + end - begin] = '\0';
     string_free(dest);
@@ -386,7 +387,7 @@ static int get_host(const char* URL, int isReal, int* phishy, const char** hstar
                 return rc;
             if (rc)
                 *phishy |= PHISHY_USERNAME_IN_URL; /* if the url contains a username that is there just to fool people,
-			     					     like http://banksite@example.com/ */
+                                                                     like http://banksite@example.com/ */
             start = realhost + 1;                  /*skip the username*/
         } while (realhost);                        /*skip over multiple @ characters, text following last @ character is the real host*/
     } else if (ismailto && isReal)
@@ -526,7 +527,7 @@ str_strip(char** begin, const char** end, const char* what, size_t what_len)
         return;
 
     /*if(str_end < (sbegin + what_len))
-		return;*/
+                return;*/
     if (strlen(sbegin) < what_len)
         return;
 
@@ -633,7 +634,7 @@ cleanupURL(struct string* URL, struct string* pre_URL, int isReal)
 
     clear_msb(begin);
     /*if(begin == NULL)
-		return;*/
+                return;*/
     /*TODO: handle hex-encoded IPs*/
     while (isspace(*begin))
         begin++;
@@ -665,9 +666,9 @@ cleanupURL(struct string* URL, struct string* pre_URL, int isReal)
 
         str_replace(begin, end, '\\', '/');
         /* find beginning of hostname, because:
-		 * - we want to keep only protocol, host, and
-		 *  strip path & query parameter(s)
-		 * - we want to make hostname lowercase*/
+         * - we want to keep only protocol, host, and
+         *  strip path & query parameter(s)
+         * - we want to make hostname lowercase*/
         host_begin = strchr(begin, ':');
         while (host_begin && (host_begin < end) && (host_begin[1] == '/')) host_begin++;
         if (!host_begin)
@@ -677,8 +678,8 @@ cleanupURL(struct string* URL, struct string* pre_URL, int isReal)
         host_len = strcspn(host_begin, ":/?");
         if (host_begin + host_len > end + 1) {
             /* prevent hostname extending beyond end, it can happen
-			 * if we have spaces at the end, we don't want those part of
-			 * the hostname */
+             * if we have spaces at the end, we don't want those part of
+             * the hostname */
             host_len = end - host_begin + 1;
         } else {
             /* cut the URL after the hostname */
@@ -689,7 +690,7 @@ cleanupURL(struct string* URL, struct string* pre_URL, int isReal)
         /* convert hostname to lowercase, but only hostname! */
         str_make_lowercase(host_begin, host_len);
         /* some broken MUAs put > in the href, and then
-		 * we get a false positive, so remove them */
+         * we get a false positive, so remove them */
         str_replace(begin, end, '<', ' ');
         str_replace(begin, end, '>', ' ');
         str_replace(begin, end, '\"', ' ');
@@ -732,9 +733,6 @@ cl_error_t phishingScan(cli_ctx* ctx, tag_arguments_t* hrefs)
         goto done;
     }
 
-    if (!ctx->found_possibly_unwanted && !SCAN_ALLMATCHES)
-        *ctx->virname = NULL;
-
     for (i = 0; i < hrefs->count; i++) {
         struct url_check urls;
         enum phish_status phishing_verdict;
@@ -776,32 +774,32 @@ cl_error_t phishingScan(cli_ctx* ctx, tag_arguments_t* hrefs)
             case CL_PHISH_CLEAN:
                 continue;
             case CL_PHISH_NUMERIC_IP:
-                status = cli_append_possibly_unwanted(ctx, "Heuristics.Phishing.Email.Cloaked.NumericIP");
+                status = cli_append_potentially_unwanted(ctx, "Heuristics.Phishing.Email.Cloaked.NumericIP");
                 break;
             case CL_PHISH_CLOAKED_NULL:
-                status = cli_append_possibly_unwanted(ctx, "Heuristics.Phishing.Email.Cloaked.Null"); /*fakesite%01%00@fake.example.com*/
+                status = cli_append_potentially_unwanted(ctx, "Heuristics.Phishing.Email.Cloaked.Null"); /*fakesite%01%00@fake.example.com*/
                 break;
             case CL_PHISH_SSL_SPOOF:
-                status = cli_append_possibly_unwanted(ctx, "Heuristics.Phishing.Email.SSL-Spoof");
+                status = cli_append_potentially_unwanted(ctx, "Heuristics.Phishing.Email.SSL-Spoof");
                 break;
             case CL_PHISH_CLOAKED_UIU:
-                status = cli_append_possibly_unwanted(ctx, "Heuristics.Phishing.Email.Cloaked.Username"); /*http://banksite@fake.example.com*/
+                status = cli_append_potentially_unwanted(ctx, "Heuristics.Phishing.Email.Cloaked.Username"); /*http://banksite@fake.example.com*/
                 break;
             case CL_PHISH_HASH0:
-                status = cli_append_possibly_unwanted(ctx, "Heuristics.Safebrowsing.Suspected-malware_safebrowsing.clamav.net");
+                status = cli_append_potentially_unwanted(ctx, "Heuristics.Safebrowsing.Suspected-malware_safebrowsing.clamav.net");
                 break;
             case CL_PHISH_HASH1:
-                status = cli_append_possibly_unwanted(ctx, "Heuristics.Phishing.URL.Blocked");
+                status = cli_append_potentially_unwanted(ctx, "Heuristics.Phishing.URL.Blocked");
                 break;
             case CL_PHISH_HASH2:
-                status = cli_append_possibly_unwanted(ctx, "Heuristics.Safebrowsing.Suspected-phishing_safebrowsing.clamav.net");
+                status = cli_append_potentially_unwanted(ctx, "Heuristics.Safebrowsing.Suspected-phishing_safebrowsing.clamav.net");
                 break;
             case CL_PHISH_NOMATCH:
             default:
-                status = cli_append_possibly_unwanted(ctx, "Heuristics.Phishing.Email.SpoofedDomain");
+                status = cli_append_potentially_unwanted(ctx, "Heuristics.Phishing.Email.SpoofedDomain");
                 break;
         }
-        if (CL_CLEAN != status && !SCAN_ALLMATCHES) {
+        if (CL_SUCCESS != status) {
             goto done;
         }
     }
@@ -813,7 +811,7 @@ done:
 static char hex2int(const unsigned char* src)
 {
     return (src[0] == '0' && src[1] == '0') ? 0x1 : /* don't convert %00 to \0, use 0x1
- 		      * this value is also used by cloak check*/
+                                                     * this value is also used by cloak check*/
                hextable[src[0]] << 4 | hextable[src[1]];
 }
 
@@ -1013,7 +1011,7 @@ static int isURL(char* URL, int accept_anyproto)
 
     if (!has_proto && (q = memchr(p, '@', end - p))) {
         /* don't phishcheck if displayed URL is email, but do phishcheck if
-	     * foo.TLD@host is used */
+         * foo.TLD@host is used */
         const char* q2 = q - 1;
         while (q2 > p && *q2 != '.') q2--;
         if (q2 == p || !in_tld_set(q2 + 1, q - q2 - 1))
@@ -1105,11 +1103,11 @@ static int url_get_host(struct url_check* url, struct url_check* host_url, int i
 
     if (!host->data || (isReal && (host->data[0] == '\0' || strstr(host->data, ".."))) || *phishy & REAL_IS_MAILTO || strchr(host->data, ' ')) {
         /* no host,
-		 * link without domain, such as: href="/isapi.dll?...
-		 * mailto:
-		 * spaces in hostname
-		 * double dots
-		 */
+         * link without domain, such as: href="/isapi.dll?...
+         * mailto:
+         * spaces in hostname
+         * double dots
+         */
         cli_dbgmsg("Phishcheck:skipping invalid host\n");
         return CL_PHISH_CLEAN;
     }
@@ -1351,7 +1349,7 @@ static cl_error_t url_hash_match(
 
     if (!rlist || !rlist->sha256_hashes.bm_patterns) {
         /* no hashes loaded -> don't waste time canonicalizing and
-		 * looking up */
+         * looking up */
         goto done;
     }
     if ((NULL == inurl) || (NULL == phishing_verdict)) {
@@ -1406,7 +1404,7 @@ static cl_error_t url_hash_match(
         --ki;
         for (ji = COMPONENTS + 1; ji > j;) {
             /* lookup last 2 and 3 components of host, as hostkey prefix,
-		 * if not matched, shortcircuit lookups */
+             * if not matched, shortcircuit lookups */
             int need_prefixmatch = (count < 2 && !prefix_matched) &&
                                    rlist->hostkey_prefix.bm_patterns;
             --ji;
@@ -1607,8 +1605,8 @@ static enum phish_status phishingCheck(cli_ctx* ctx, struct url_check* urls)
     if (urls->flags & CHECK_CLOAKING) {
         /*
          * Checks if URL is cloaked.
-		 * Should we check if it contains another http://, https://?
-		 * No because we might get false positives from redirect services.
+         * Should we check if it contains another http://, https://?
+         * No because we might get false positives from redirect services.
          */
         if (strchr(urls->realLink.data, 0x1)) {
             phishing_verdict = CL_PHISH_CLOAKED_NULL;

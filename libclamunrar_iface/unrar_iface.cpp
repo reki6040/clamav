@@ -1,7 +1,7 @@
 /*
  * Interface to libclamunrar
  *
- * Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ * Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  * Copyright (C) 2007-2013 Sourcefire, Inc.
  *
  * Authors: Trog, Torok Edvin, Tomasz Kojm, Micah Snyder
@@ -442,7 +442,7 @@ int CALLBACK CallbackProc(UINT msg, LPARAM UserData, LPARAM P1, LPARAM P2)
     switch (msg) {
         case UCM_CHANGEVOLUMEW: {
             /* We don't support RAR's split into multiple volumes
-         * ClamAV is not aware of more than 1 file at a time */
+             * ClamAV is not aware of more than 1 file at a time */
             status = -1;
             unrar_dbgmsg("CallbackProc: Archive has multiple volumes, but we don't support multiple volumes.\n");
             break;

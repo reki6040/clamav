@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2007-2013 Sourcefire, Inc.
  *
  *  Authors: Tomasz Kojm, Török Edvin
@@ -109,19 +109,19 @@ enum commands parse_command(const char *cmd, const char **argument, int oldstyle
             const char *arg = cmd + len;
             if (commands[i].need_arg) {
                 if (!*arg) { /* missing argument */
-                    logg("$Command %s missing argument!\n", commands[i].cmd);
+                    logg(LOGG_DEBUG_NV, "Command %s missing argument!\n", commands[i].cmd);
                     return COMMAND_UNKNOWN;
                 }
                 *argument = arg + 1;
             } else {
                 if (*arg) { /* extra stuff after command */
-                    logg("$Command %s has trailing garbage!\n", commands[i].cmd);
+                    logg(LOGG_DEBUG_NV, "Command %s has trailing garbage!\n", commands[i].cmd);
                     return COMMAND_UNKNOWN;
                 }
                 *argument = NULL;
             }
             if (oldstyle && !commands[i].support_old) {
-                logg("$Command sent as old-style when not supported: %s\n", commands[i].cmd);
+                logg(LOGG_DEBUG_NV, "Command sent as old-style when not supported: %s\n", commands[i].cmd);
                 return COMMAND_UNKNOWN;
             }
             return commands[i].cmdtype;
@@ -189,14 +189,16 @@ int conn_reply_errno(const client_conn_t *conn, const char *path,
  */
 int command(client_conn_t *conn, int *virus)
 {
-    int desc                        = conn->sd;
-    struct cl_engine *engine        = conn->engine;
-    struct cl_scan_options *options = conn->options;
-    const struct optstruct *opts    = conn->opts;
-    enum scan_type type             = TYPE_INIT;
+    int desc                 = conn->sd;
+    struct cl_engine *engine = conn->engine;
+    struct cl_scan_options options;
+    const struct optstruct *opts = conn->opts;
+    enum scan_type type          = TYPE_INIT;
     int maxdirrec;
     int ret   = 0;
     int flags = CLI_FTW_STD;
+
+    memcpy(&options, conn->options, sizeof(struct cl_scan_options));
 
     struct scan_cb_data scandata;
     struct cli_ftw_cbdata data;
@@ -205,7 +207,7 @@ int command(client_conn_t *conn, int *virus)
     jobgroup_t *group = NULL;
 
     if (thrmgr_group_need_terminate(conn->group)) {
-        logg("$Client disconnected while command was active\n");
+        logg(LOGG_DEBUG_NV, "Client disconnected while command was active\n");
         if (conn->scanfd != -1)
             close(conn->scanfd);
         return 1;
@@ -218,7 +220,7 @@ int command(client_conn_t *conn, int *virus)
     scandata.group         = conn->group;
     scandata.odesc         = desc;
     scandata.conn          = conn;
-    scandata.options       = options;
+    scandata.options       = &options;
     scandata.engine        = engine;
     scandata.opts          = opts;
     scandata.thr_pool      = conn->thrpool;
@@ -256,9 +258,9 @@ int command(client_conn_t *conn, int *virus)
             pthread_mutex_unlock(&conn->thrpool->pool_mutex);
             if (ret) {
                 /* multiscan has 1 control thread, so there needs to be at least
-		   1 threads that is a non-multiscan controlthread to scan and
-		   make progress. */
-                logg("^Not enough threads for multiscan. Max: %d, Alive: %d, Multiscan: %d+1\n",
+                   1 threads that is a non-multiscan controlthread to scan and
+                   make progress. */
+                logg(LOGG_WARNING, "Not enough threads for multiscan. Max: %d, Alive: %d, Multiscan: %d+1\n",
                      max, alive, multiscan);
                 conn_reply(conn, conn->filename, "Not enough threads for multiscan. Increase MaxThreads.", "ERROR");
                 return 1;
@@ -296,7 +298,7 @@ int command(client_conn_t *conn, int *virus)
                 conn_reply_error(conn, "FILDES: didn't receive file descriptor.");
                 return 1;
             } else {
-                ret = scanfd(conn, NULL, engine, options, opts, desc, 0);
+                ret = scanfd(conn, NULL, engine, &options, opts, desc, 0);
                 if (ret == CL_VIRUS) {
                     *virus = 1;
                     ret    = 0;
@@ -310,7 +312,7 @@ int command(client_conn_t *conn, int *virus)
                     ret = 1;
                 } else
                     ret = 0;
-                logg("$Closed fd %d\n", conn->scanfd);
+                logg(LOGG_DEBUG_NV, "Closed fd %d\n", conn->scanfd);
                 close(conn->scanfd);
             }
             return ret;
@@ -327,7 +329,7 @@ int command(client_conn_t *conn, int *virus)
             return 0;
         case COMMAND_INSTREAMSCAN:
             thrmgr_setactivetask(NULL, "INSTREAM");
-            ret = scanfd(conn, NULL, engine, options, opts, desc, 1);
+            ret = scanfd(conn, NULL, engine, &options, opts, desc, 1);
             if (ret == CL_VIRUS) {
                 *virus = 1;
                 ret    = 0;
@@ -343,7 +345,7 @@ int command(client_conn_t *conn, int *virus)
                 ret = 0;
             if (ftruncate(conn->scanfd, 0) == -1) {
                 /* not serious, we're going to close it and unlink it anyway */
-                logg("*ftruncate failed: %d\n", errno);
+                logg(LOGG_DEBUG, "ftruncate failed: %d\n", errno);
             }
             close(conn->scanfd);
             conn->scanfd = -1;
@@ -351,7 +353,7 @@ int command(client_conn_t *conn, int *virus)
             return ret;
         case COMMAND_ALLMATCHSCAN:
             if (!optget(opts, "AllowAllMatchScan")->enabled) {
-                logg("$Rejecting ALLMATCHSCAN command.\n");
+                logg(LOGG_DEBUG_NV, "Rejecting ALLMATCHSCAN command.\n");
                 conn_reply(conn, conn->filename, "ALLMATCHSCAN command disabled by clamd configuration.", "ERROR");
                 return 1;
             }
@@ -360,7 +362,7 @@ int command(client_conn_t *conn, int *virus)
             type = TYPE_SCAN;
             break;
         default:
-            logg("!Invalid command dispatched: %d\n", conn->cmdtype);
+            logg(LOGG_ERROR, "Invalid command dispatched: %d\n", conn->cmdtype);
             return 1;
     }
 
@@ -411,13 +413,13 @@ static int dispatch_command(client_conn_t *conn, enum commands cmd, const char *
     client_conn_t *dup_conn = (client_conn_t *)malloc(sizeof(struct client_conn_tag));
 
     if (!dup_conn) {
-        logg("!Can't allocate memory for client_conn\n");
+        logg(LOGG_ERROR, "Can't allocate memory for client_conn\n");
         return -1;
     }
     memcpy(dup_conn, conn, sizeof(*conn));
     dup_conn->cmdtype = cmd;
     if (cl_engine_addref(dup_conn->engine)) {
-        logg("!cl_engine_addref() failed\n");
+        logg(LOGG_ERROR, "cl_engine_addref() failed\n");
         free(dup_conn);
         return -1;
     }
@@ -439,7 +441,7 @@ static int dispatch_command(client_conn_t *conn, enum commands cmd, const char *
         case COMMAND_ALLMATCHSCAN:
             dup_conn->filename = cli_strdup_to_utf8(argument);
             if (!dup_conn->filename) {
-                logg("!Failed to allocate memory for filename\n");
+                logg(LOGG_ERROR, "Failed to allocate memory for filename\n");
                 ret = -1;
             }
             break;
@@ -453,14 +455,14 @@ static int dispatch_command(client_conn_t *conn, enum commands cmd, const char *
             /* just dispatch the command */
             break;
         default:
-            logg("!Invalid command dispatch: %d\n", cmd);
+            logg(LOGG_ERROR, "Invalid command dispatch: %d\n", cmd);
             ret = -2;
             break;
     }
     if (!dup_conn->group)
         bulk = 0;
     if (!ret && !thrmgr_group_dispatch(dup_conn->thrpool, dup_conn->group, dup_conn, bulk)) {
-        logg("!thread dispatch failed\n");
+        logg(LOGG_ERROR, "thread dispatch failed\n");
         ret = -2;
     }
     if (ret) {
@@ -541,7 +543,7 @@ int execute_or_dispatch_command(client_conn_t *conn, enum commands cmd, const ch
             default:
                 /* these commands are not recognized inside an IDSESSION */
                 conn_reply_error(conn, "Command invalid inside IDSESSION.");
-                logg("$SESSION: command is not valid inside IDSESSION: %d\n", cmd);
+                logg(LOGG_DEBUG_NV, "SESSION: command is not valid inside IDSESSION: %d\n", cmd);
                 conn->group = NULL;
                 return 1;
         }
@@ -559,7 +561,7 @@ int execute_or_dispatch_command(client_conn_t *conn, enum commands cmd, const ch
             pthread_mutex_unlock(&reload_mutex);
             mdprintf(desc, "RELOADING%c", term);
             /* we set reload flag, and we'll reload before closing the
-	     * connection */
+             * connection */
             return 1;
         case COMMAND_PING:
             if (conn->group)

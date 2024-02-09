@@ -1,4 +1,4 @@
-# Copyright (C) 2020-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+# Copyright (C) 2020-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
 
 """
 Run freshclam tests
@@ -35,6 +35,8 @@ class TC(testcase.TestCase):
         TC.path_www.mkdir()
 
         TC.path_db = Path(TC.path_tmp, 'database')
+        TC.path_db.mkdir()
+
         TC.freshclam_pid = Path(TC.path_tmp, 'freshclam-test.pid')
         TC.freshclam_config = Path(TC.path_tmp, 'freshclam-test.conf')
 
@@ -85,17 +87,19 @@ class TC(testcase.TestCase):
             port=TC.mock_mirror_port,
         ))
 
-        command = '{valgrind} {valgrind_args} {freshclam} --config-file={freshclam_config} -V'.format(
+        command = '{valgrind} {valgrind_args} {freshclam} --no-dns --config-file={freshclam_config} -V'.format(
             valgrind=TC.valgrind, valgrind_args=TC.valgrind_args, freshclam=TC.freshclam, freshclam_config=TC.freshclam_config
         )
         output = self.execute_command(command)
 
         assert output.ec == 0  # success
 
-        expected_results = [
+        expected_stdout = [
             'ClamAV {}'.format(TC.version),
         ]
-        self.verify_output(output.out, expected=expected_results)
+
+        # verify stdout
+        self.verify_output(output.out, expected=expected_stdout)
 
     def test_freshclam_01_file_copy(self):
         self.step_name('Basic freshclam test using file:// to "download" clamav.hdb')
@@ -129,19 +133,21 @@ class TC(testcase.TestCase):
             user=getpass.getuser(),
         ))
 
-        command = '{valgrind} {valgrind_args} {freshclam} --config-file={freshclam_config}'.format(
+        command = '{valgrind} {valgrind_args} {freshclam} --no-dns --config-file={freshclam_config}'.format(
             valgrind=TC.valgrind, valgrind_args=TC.valgrind_args, freshclam=TC.freshclam, freshclam_config=TC.freshclam_config
         )
         output = self.execute_command(command)
 
         assert output.ec == 0  # success
 
-        expected_results = [
+        expected_stdout = [
             'Downloading clamav.hdb',
             'Database test passed.',
             'clamav.hdb updated',
         ]
-        self.verify_output(output.out, expected=expected_results)
+
+        # verify stdout
+        self.verify_output(output.out, expected=expected_stdout)
 
     def test_freshclam_02_http_403(self):
         self.step_name('Verify correct behavior when receiving 403 (forbidden)')
@@ -168,18 +174,35 @@ class TC(testcase.TestCase):
             port=TC.mock_mirror_port,
             user=getpass.getuser(),
         ))
-        command = '{valgrind} {valgrind_args} {freshclam} --config-file={freshclam_config} --update-db=daily'.format(
+        command = '{valgrind} {valgrind_args} {freshclam} --no-dns --config-file={freshclam_config} --update-db=daily'.format(
             valgrind=TC.valgrind, valgrind_args=TC.valgrind_args, freshclam=TC.freshclam, freshclam_config=TC.freshclam_config
         )
         output = self.execute_command(command)
 
         assert output.ec == 17  # forbidden
 
-        expected_results = [
+        expected_stderr = [
             'FreshClam received error code 403',
             'Forbidden',
         ]
-        self.verify_output(output.out, expected=expected_results)
+
+        # verify stderr
+        self.verify_output(output.err, expected=expected_stderr)
+
+        command = '{valgrind} {valgrind_args} {freshclam} --no-dns --config-file={freshclam_config} --update-db=daily'.format(
+            valgrind=TC.valgrind, valgrind_args=TC.valgrind_args, freshclam=TC.freshclam, freshclam_config=TC.freshclam_config
+        )
+        output = self.execute_command(command)
+
+        assert output.ec == 0  # "fine" (on cooldown, refusing to try again for now)
+
+        expected_stderr = [
+            'FreshClam previously received error code 429 or 403',
+            'You are still on cool-down until after',
+        ]
+
+        # verify stderr
+        self.verify_output(output.err, expected=expected_stderr)
 
     def test_freshclam_03_http_403_daemonized(self):
         self.step_name('Verify correct behavior when receiving 403 (forbidden) and daemonized')
@@ -206,18 +229,20 @@ class TC(testcase.TestCase):
             port=TC.mock_mirror_port,
             user=getpass.getuser(),
         ))
-        command = '{valgrind} {valgrind_args} {freshclam} --config-file={freshclam_config} --update-db=daily --daemon -F'.format(
+        command = '{valgrind} {valgrind_args} {freshclam} --no-dns --config-file={freshclam_config} --update-db=daily --daemon -F'.format(
             valgrind=TC.valgrind, valgrind_args=TC.valgrind_args, freshclam=TC.freshclam, freshclam_config=TC.freshclam_config
         )
         output = self.execute_command(command)
 
         assert output.ec == 17  # forbidden
 
-        expected_results = [
+        expected_stderr = [
             'FreshClam received error code 403',
             'Forbidden',
         ]
-        self.verify_output(output.out, expected=expected_results)
+
+        # verify stderr
+        self.verify_output(output.err, expected=expected_stderr)
 
     def test_freshclam_04_http_429(self):
         self.step_name('Verify correct behavior when receiving 429 (too-many-requests)')
@@ -244,18 +269,20 @@ class TC(testcase.TestCase):
             port=TC.mock_mirror_port,
             user=getpass.getuser(),
         ))
-        command = '{valgrind} {valgrind_args} {freshclam} --config-file={freshclam_config} --update-db=daily'.format(
+        command = '{valgrind} {valgrind_args} {freshclam} --no-dns --config-file={freshclam_config} --update-db=daily'.format(
             valgrind=TC.valgrind, valgrind_args=TC.valgrind_args, freshclam=TC.freshclam, freshclam_config=TC.freshclam_config
         )
         output = self.execute_command(command)
 
         assert output.ec == 0  # success
 
-        expected_results = [
+        expected_stderr = [
             'FreshClam received error code 429',
             'You are on cool-down',
         ]
-        self.verify_output(output.out, expected=expected_results)
+
+        # verify stderr
+        self.verify_output(output.err, expected=expected_stderr)
 
     def test_freshclam_05_cdiff_update(self):
         self.step_name('Verify that freshclam can update from an older CVD to a newer with CDIFF patches')
@@ -295,20 +322,25 @@ class TC(testcase.TestCase):
             port=TC.mock_mirror_port,
             user=getpass.getuser(),
         ))
-        command = '{valgrind} {valgrind_args} {freshclam} --config-file={freshclam_config} --update-db=test'.format(
+        command = '{valgrind} {valgrind_args} {freshclam} --no-dns --config-file={freshclam_config} --update-db=test'.format(
             valgrind=TC.valgrind, valgrind_args=TC.valgrind_args, freshclam=TC.freshclam, freshclam_config=TC.freshclam_config
         )
         output = self.execute_command(command)
 
         assert output.ec == 0  # success
 
-        expected_results = [
+        expected_stdout = [
             'test.cld updated',
         ]
         unexpected_results = [
             'already up-to-date'
         ]
-        self.verify_output(output.out, expected=expected_results, unexpected=unexpected_results)
+
+        # verify stdout
+        self.verify_output(output.out, expected=expected_stdout, unexpected=unexpected_results)
+
+        # verify stderr
+        self.verify_output(output.err, unexpected=unexpected_results)
 
     @unittest.skipIf(operating_system != 'windows', 'This test is specific to Windows.')
     def test_freshclam_05_cdiff_update_UNC(self):
@@ -352,20 +384,25 @@ class TC(testcase.TestCase):
             port=TC.mock_mirror_port,
             user=getpass.getuser(),
         ))
-        command = '{valgrind} {valgrind_args} {freshclam} --config-file={freshclam_config} --update-db=test'.format(
+        command = '{valgrind} {valgrind_args} {freshclam} --no-dns --config-file={freshclam_config} --update-db=test'.format(
             valgrind=TC.valgrind, valgrind_args=TC.valgrind_args, freshclam=TC.freshclam, freshclam_config=TC.freshclam_config
         )
         output = self.execute_command(command)
 
         assert output.ec == 0  # success
 
-        expected_results = [
+        expected_stdout = [
             'test.cld updated',
         ]
         unexpected_results = [
             'already up-to-date'
         ]
-        self.verify_output(output.out, expected=expected_results, unexpected=unexpected_results)
+
+        # verify stdout
+        self.verify_output(output.out, expected=expected_stdout, unexpected=unexpected_results)
+
+        # verify stderr
+        self.verify_output(output.err, unexpected=unexpected_results)
 
     def test_freshclam_06_cdiff_partial_minus_1(self):
         self.step_name('Verify that freshclam will accept a partial update with 1 missing cdiff')
@@ -403,14 +440,14 @@ class TC(testcase.TestCase):
             port=TC.mock_mirror_port,
             user=getpass.getuser(),
         ))
-        command = '{valgrind} {valgrind_args} {freshclam} --config-file={freshclam_config} --update-db=test'.format(
+        command = '{valgrind} {valgrind_args} {freshclam} --no-dns --config-file={freshclam_config} --update-db=test'.format(
             valgrind=TC.valgrind, valgrind_args=TC.valgrind_args, freshclam=TC.freshclam, freshclam_config=TC.freshclam_config
         )
         output = self.execute_command(command)
 
         assert output.ec == 0  # success
 
-        expected_results = [
+        expected_stdout = [
             'Downloaded 2 patches for test, which is fewer than the 3 expected patches',
             'We\'ll settle for this partial-update, at least for now',
             'test.cld updated',
@@ -418,19 +455,24 @@ class TC(testcase.TestCase):
         unexpected_results = [
             'already up-to-date'
         ]
-        self.verify_output(output.out, expected=expected_results, unexpected=unexpected_results)
+
+        # verify stdout
+        self.verify_output(output.out, expected=expected_stdout, unexpected=unexpected_results)
+
+        # verify stderr
+        self.verify_output(output.err, unexpected=unexpected_results)
 
         #
         # Try again, we should be 1 behind which is tolerable and should not trigger a full CVD download
         #
-        command = '{valgrind} {valgrind_args} {freshclam} --config-file={freshclam_config} --update-db=test'.format(
+        command = '{valgrind} {valgrind_args} {freshclam} --no-dns --config-file={freshclam_config} --update-db=test'.format(
             valgrind=TC.valgrind, valgrind_args=TC.valgrind_args, freshclam=TC.freshclam, freshclam_config=TC.freshclam_config
         )
         output = self.execute_command(command)
 
         assert output.ec == 0  # success
 
-        expected_results = [
+        expected_stdout = [
             'The database server doesn\'t have the latest patch',
             'The server will likely have updated if you check again in a few hours',
         ]
@@ -438,7 +480,12 @@ class TC(testcase.TestCase):
             'test.cld updated',
             'test.cvd updated',
         ]
-        self.verify_output(output.out, expected=expected_results, unexpected=unexpected_results)
+
+        # verify stdout
+        self.verify_output(output.out, expected=expected_stdout, unexpected=unexpected_results)
+
+        # verify stderr
+        self.verify_output(output.err, unexpected=unexpected_results)
 
     def test_freshclam_07_cdiff_partial_minus_2(self):
         self.step_name('Verify that freshclam behavior with 2 missing cdiffs')
@@ -479,14 +526,14 @@ class TC(testcase.TestCase):
             port=TC.mock_mirror_port,
             user=getpass.getuser(),
         ))
-        command = '{valgrind} {valgrind_args} {freshclam} --config-file={freshclam_config} --update-db=test'.format(
+        command = '{valgrind} {valgrind_args} {freshclam} --no-dns --config-file={freshclam_config} --update-db=test'.format(
             valgrind=TC.valgrind, valgrind_args=TC.valgrind_args, freshclam=TC.freshclam, freshclam_config=TC.freshclam_config
         )
         output = self.execute_command(command)
 
         assert output.ec == 0  # success
 
-        expected_results = [
+        expected_stdout = [
             'Downloaded 1 patches for test, which is fewer than the 3 expected patches',
             'We\'ll settle for this partial-update, at least for now',
             'test.cld updated',
@@ -494,42 +541,55 @@ class TC(testcase.TestCase):
         unexpected_results = [
             'already up-to-date'
         ]
-        self.verify_output(output.out, expected=expected_results, unexpected=unexpected_results)
+
+        # verify stdout
+        self.verify_output(output.out, expected=expected_stdout, unexpected=unexpected_results)
+
+        # verify stderr
+        self.verify_output(output.err, unexpected=unexpected_results)
 
         #
         # Try again, we should be 2 behind which is NOT tolerable and SHOULD trigger a full CVD download
         #
-        command = '{valgrind} {valgrind_args} {freshclam} --config-file={freshclam_config} --update-db=test'.format(
+        command = '{valgrind} {valgrind_args} {freshclam} --no-dns --config-file={freshclam_config} --update-db=test'.format(
             valgrind=TC.valgrind, valgrind_args=TC.valgrind_args, freshclam=TC.freshclam, freshclam_config=TC.freshclam_config
         )
         output = self.execute_command(command)
 
         assert output.ec == 0  # success
 
-        expected_results = [
-            'Incremental update failed, trying to download test.cvd',
-            'test.cvd updated',
-        ]
-        unexpected_results = [
-            'test.cld updated',
-        ]
-        self.verify_output(output.out, expected=expected_results, unexpected=unexpected_results)
+        expected_stdout = ['test.cvd updated']
+        expected_stderr = ['Incremental update failed, trying to download test.cvd']
+        unexpected_results = ['test.cld updated']
+
+        # verify stdout
+        self.verify_output(output.out, expected=expected_stdout, unexpected=unexpected_results)
+
+        # verify stderr
+        self.verify_output(output.err, expected=expected_stderr, unexpected=unexpected_results)
 
     def test_freshclam_07_no_cdiff_out_of_date_cvd(self):
         self.step_name('Verify that freshclam will properly handle an out-of-date CVD update after a zero-byte CDIFF')
 
-        # start with this CVD
-        shutil.copy(str(TC.path_source / 'unit_tests' / 'input' / 'freshclam_testfiles' /'test-3.cvd'), str(TC.path_db / 'test.cvd'))
+        # start with CVD 1
+        shutil.copy(str(TC.path_source / 'unit_tests' / 'input' / 'freshclam_testfiles' /'test-1.cvd'), str(TC.path_db / 'test.cvd'))
 
-        # advertise this CVD (by sending the header response to Range requests)
+        # advertise CVD 6 (by sending the header response to Range requests)
         shutil.copy(str(TC.path_source / 'unit_tests' / 'input' / 'freshclam_testfiles' /'test-6.cvd'), str(TC.path_www / 'test.cvd.advertised'))
 
-        # serve this CVD when requested instead of the advertised one
+        # Serve the patches 2.
+        shutil.copy(str(TC.path_source / 'unit_tests' / 'input' / 'freshclam_testfiles' /'test-2.cdiff'), str(TC.path_www))
+
+        # Serve a zero-byte file instead of test-3.cdiff. This should trigger a whole CVD download.
+        with (TC.path_www / 'test-3.cdiff').open('w') as fp:
+            pass
+
+        # Serve CVD 5 when test.cvd is requested instead of 6 (the advertised one). This should trigger an incremental update, starting a test-4.cvd + patches 5-6.
         shutil.copy(str(TC.path_source / 'unit_tests' / 'input' / 'freshclam_testfiles' /'test-5.cvd'), str(TC.path_www / 'test.cvd.served'))
 
-        # Serve a zero-byte test-4.cdiff instead of the real test-4.cdiff. This should trigger a whole CVD download.
-        with (TC.path_www / 'test-4.cdiff').open('w') as fp:
-            pass
+        # Serve the patches 5 - 6. Patch 4 should never be requested.
+        shutil.copy(str(TC.path_source / 'unit_tests' / 'input' / 'freshclam_testfiles' /'test-5.cdiff'), str(TC.path_www))
+        shutil.copy(str(TC.path_source / 'unit_tests' / 'input' / 'freshclam_testfiles' /'test-6.cdiff'), str(TC.path_www))
 
         handler = partial(WebServerHandler_WWW, TC.path_www)
         TC.mock_mirror = Process(target=mock_database_mirror, args=(handler, TC.mock_mirror_port))
@@ -553,20 +613,163 @@ class TC(testcase.TestCase):
             port=TC.mock_mirror_port,
             user=getpass.getuser(),
         ))
-        command = '{valgrind} {valgrind_args} {freshclam} --config-file={freshclam_config} --update-db=test'.format(
+
+        #
+        # 1st attempt
+        #
+        command = '{valgrind} {valgrind_args} {freshclam} --no-dns --config-file={freshclam_config} --update-db=test'.format(
             valgrind=TC.valgrind, valgrind_args=TC.valgrind_args, freshclam=TC.freshclam, freshclam_config=TC.freshclam_config
         )
         output = self.execute_command(command)
 
         assert output.ec == 0  # success
 
-        expected_results = [
-            'Incremental updates either failed or are disabled, so we\'ll have to settle for a slightly out-of-date database.',
+        expected_stdout = ['test.cvd updated \\(version: 5']
+        expected_stderr = ['Received an older test CVD than was advertised. Incremental updates either failed or ']
+        unexpected_results = ['already up-to-date']
+
+        # verify stdout
+        self.verify_output(output.out, expected=expected_stdout, unexpected=unexpected_results)
+
+        # verify stderr
+        self.verify_output(output.err, expected=expected_stderr, unexpected=unexpected_results)
+
+        #
+        # 2nd attempt
+        #
+        command = '{valgrind} {valgrind_args} {freshclam} --no-dns --config-file={freshclam_config} --update-db=test'.format(
+            valgrind=TC.valgrind, valgrind_args=TC.valgrind_args, freshclam=TC.freshclam, freshclam_config=TC.freshclam_config
+        )
+        output = self.execute_command(command)
+
+        assert output.ec == 0  # success
+
+        expected_stdout = [
+            'test.cld updated \\(version: 6',
+        ]
+        unexpected_results = [
+            'already up-to-date',
+            'Received an older test CVD than was advertised',
+            'cdiff_apply: lseek\\(desc, -350, SEEK_END\\) failed',
+            'Incremental update failed, trying to download test.cvd',
+        ]
+
+        # verify stdout
+        self.verify_output(output.out, expected=expected_stdout, unexpected=unexpected_results)
+
+        # verify stderr
+        self.verify_output(output.err, unexpected=unexpected_results)
+
+        #
+        # 3rd attempt
+        #
+        command = '{valgrind} {valgrind_args} {freshclam} --no-dns --config-file={freshclam_config} --update-db=test'.format(
+            valgrind=TC.valgrind, valgrind_args=TC.valgrind_args, freshclam=TC.freshclam, freshclam_config=TC.freshclam_config
+        )
+        output = self.execute_command(command)
+
+        assert output.ec == 0  # success
+
+        expected_stdout = [
+            'database is up-to-date',
+        ]
+        unexpected_results = [
+            'test.cld updated \\(version: 6',
+            'Received an older test CVD than was advertised',
+            'cdiff_apply: lseek\\(desc, -350, SEEK_END\\) failed',
+            'Incremental update failed, trying to download test.cvd',
+        ]
+        # verify stdout
+        self.verify_output(output.out, expected=expected_stdout, unexpected=unexpected_results)
+
+        # verify stderr
+        self.verify_output(output.err, unexpected=unexpected_results)
+
+    def test_freshclam_08_cdiff_update_twice(self):
+        self.step_name('Verify that freshclam can update from an older CVD to a newer with CDIFF patches, and then update from an older CLD to the latest with more CDIFF patches')
+
+        # start with this CVD
+        shutil.copy(str(TC.path_source / 'unit_tests' / 'input' / 'freshclam_testfiles' /'test-1.cvd'), str(TC.path_db / 'test.cvd'))
+
+        # advertise this CVD FIRST (by sending the header response to Range requests)
+        shutil.copy(str(TC.path_source / 'unit_tests' / 'input' / 'freshclam_testfiles' /'test-3.cvd'), str(TC.path_www / 'test.cvd.advertised'))
+
+        # using these CDIFFs
+        shutil.copy(str(TC.path_source / 'unit_tests' / 'input' / 'freshclam_testfiles' /'test-2.cdiff'), str(TC.path_www))
+        shutil.copy(str(TC.path_source / 'unit_tests' / 'input' / 'freshclam_testfiles' /'test-3.cdiff'), str(TC.path_www))
+
+        handler = partial(WebServerHandler_WWW, TC.path_www)
+        TC.mock_mirror = Process(target=mock_database_mirror, args=(handler, TC.mock_mirror_port))
+        TC.mock_mirror.start()
+
+        if TC.freshclam_config.exists():
+            os.remove(str(TC.freshclam_config))
+
+        TC.freshclam_config.write_text('''
+            DatabaseMirror http://localhost:{port}
+            DNSDatabaseInfo no
+            PidFile {freshclam_pid}
+            LogVerbose yes
+            LogFileMaxSize 0
+            LogTime yes
+            DatabaseDirectory {path_db}
+            DatabaseOwner {user}
+        '''.format(
+            freshclam_pid=TC.freshclam_pid,
+            path_db=TC.path_db,
+            port=TC.mock_mirror_port,
+            user=getpass.getuser(),
+        ))
+
+        #
+        # Now run the update for the first set up updates.
+        #
+        command = '{valgrind} {valgrind_args} {freshclam} --no-dns --config-file={freshclam_config} --update-db=test'.format(
+            valgrind=TC.valgrind, valgrind_args=TC.valgrind_args, freshclam=TC.freshclam, freshclam_config=TC.freshclam_config
+        )
+        output = self.execute_command(command)
+
+        assert output.ec == 0  # success
+
+        expected_stdout = [
+            'test.cld updated',
         ]
         unexpected_results = [
             'already up-to-date'
         ]
-        self.verify_output(output.out, expected=expected_results, unexpected=unexpected_results)
+
+        # verify stdout
+        self.verify_output(output.out, expected=expected_stdout, unexpected=unexpected_results)
+
+        # verify stderr
+        self.verify_output(output.err, unexpected=unexpected_results)
+
+        # advertise this newer CVD SECOND (by sending the header response to Range requests)
+        shutil.copy(str(TC.path_source / 'unit_tests' / 'input' / 'freshclam_testfiles' /'test-6.cvd'), str(TC.path_www / 'test.cvd.advertised'))
+
+        # using these CDIFFs
+        shutil.copy(str(TC.path_source / 'unit_tests' / 'input' / 'freshclam_testfiles' /'test-4.cdiff'), str(TC.path_www))
+        shutil.copy(str(TC.path_source / 'unit_tests' / 'input' / 'freshclam_testfiles' /'test-5.cdiff'), str(TC.path_www))
+        shutil.copy(str(TC.path_source / 'unit_tests' / 'input' / 'freshclam_testfiles' /'test-6.cdiff'), str(TC.path_www))
+
+        #
+        # Now re-run the update for more updates.
+        #
+        command = '{valgrind} {valgrind_args} {freshclam} --no-dns --config-file={freshclam_config} --update-db=test'.format(
+            valgrind=TC.valgrind, valgrind_args=TC.valgrind_args, freshclam=TC.freshclam, freshclam_config=TC.freshclam_config
+        )
+        output = self.execute_command(command)
+
+        assert output.ec == 0  # success
+
+        expected_stdout = [
+            'test.cld updated',
+        ]
+        unexpected_results = [
+            'already up-to-date'
+        ]
+
+
 
 def mock_database_mirror(handler, port=8001):
     '''
@@ -593,20 +796,16 @@ class WebServerHandler_02(BaseHTTPRequestHandler):
             #       someone wants to run these tests without internet access.
             self.send_response(206) # Partial file
             self.send_header('Content-type', 'application/octet-stream')
-            self.end_headers()
             page =b'ClamAV-VDB:21 Sep 2020 09-52 -0400:25934:4320797:63:2ee5a3e4285b496656117ae3809b6040:gMj7NXhxfew0+bToOF8GX7xPHPGXhOSD+CSuf3E7SHhLmVZCJUVhPS01h42I0W1py7L+BmM2yhPIW8t/oGPFw8+hdD4DU/ceET15wnPWU4lsJJeRkl46Z4D8INe9Oq36ixT1xEIkERogPE3qr6wszmjT2Xe2VcmydTXN2GfPQX:raynman:1600696324                                                                                                                                                                                                                                               '
-            self.wfile.write(page)
-
         else:
             # Send the 403 FORBIDDEN header.
             self.send_response(403) # Forbidden (blocked)
             self.send_header('Content-type', 'text/html')
-            self.end_headers()
-
             page= b'''<html><body>
                     No CVD for you!
                     </body></html>'''
-            self.wfile.write(page)
+        self.end_headers()
+        self.wfile.write(page)
 
 class WebServerHandler_04(BaseHTTPRequestHandler):
     '''
@@ -620,21 +819,17 @@ class WebServerHandler_04(BaseHTTPRequestHandler):
             #       someone wants to run these tests without internet access.
             self.send_response(206) # Partial file
             self.send_header('Content-type', 'application/octet-stream')
-            self.end_headers()
             page =b'ClamAV-VDB:21 Sep 2020 09-52 -0400:25934:4320797:63:2ee5a3e4285b496656117ae3809b6040:gMj7NXhxfew0+bToOF8GX7xPHPGXhOSD+CSuf3E7SHhLmVZCJUVhPS01h42I0W1py7L+BmM2yhPIW8t/oGPFw8+hdD4DU/ceET15wnPWU4lsJJeRkl46Z4D8INe9Oq36ixT1xEIkERogPE3qr6wszmjT2Xe2VcmydTXN2GfPQX:raynman:1600696324                                                                                                                                                                                                                                               '
-            self.wfile.write(page)
-
         else:
             # Send the 429 Too-Many-Requests header.
             self.send_response(429) # Too-Many-Requests (rate limiting)
             self.send_header('Content-type', 'text/html')
             self.send_header('Retry-After', '60') # Try again in a minute ;-)!
-            self.end_headers()
-
             page= b'''<html><body>
                     Retry later please!
                     </body></html>'''
-            self.wfile.write(page)
+        self.end_headers()
+        self.wfile.write(page)
 
 class WebServerHandler_WWW(BaseHTTPRequestHandler):
     '''

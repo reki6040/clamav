@@ -1,4 +1,4 @@
-# Copyright (C) 2020-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+# Copyright (C) 2020-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
 
 set(SCAN_TARGETS
     ARCHIVE
@@ -43,27 +43,27 @@ target_sources(clamav_scanfile_fuzzer
 target_link_libraries(clamav_scanfile_fuzzer ClamAV::libclamav)
 set_target_properties(clamav_scanfile_fuzzer PROPERTIES LINK_FLAGS "-fsanitize=fuzzer")
 
-foreach(TARGET in ${SCAN_TARGETS})
+foreach(TARGET ${SCAN_TARGETS})
     add_executable(clamav_scanmap_${TARGET}_fuzzer)
     target_sources(clamav_scanmap_${TARGET}_fuzzer
         PRIVATE clamav_scanmap_fuzzer.cpp)
-    target_compile_definitions(clamav_scanmap_${TARGET}_fuzzer PUBLIC CLAMAV_FUZZ_${SCAN_TARGETS})
+    target_compile_definitions(clamav_scanmap_${TARGET}_fuzzer PUBLIC CLAMAV_FUZZ_${TARGET})
     target_link_libraries(clamav_scanmap_${TARGET}_fuzzer ClamAV::libclamav)
     set_target_properties(clamav_scanmap_${TARGET}_fuzzer PROPERTIES LINK_FLAGS "-fsanitize=fuzzer")
 
     add_executable(clamav_scanfile_${TARGET}_fuzzer)
     target_sources(clamav_scanfile_${TARGET}_fuzzer
         PRIVATE clamav_scanfile_fuzzer.cpp)
-    target_compile_definitions(clamav_scanfile_${TARGET}_fuzzer PUBLIC CLAMAV_FUZZ_${SCAN_TARGETS})
+    target_compile_definitions(clamav_scanfile_${TARGET}_fuzzer PUBLIC CLAMAV_FUZZ_${TARGET})
     target_link_libraries(clamav_scanfile_${TARGET}_fuzzer ClamAV::libclamav)
     set_target_properties(clamav_scanfile_${TARGET}_fuzzer PROPERTIES LINK_FLAGS "-fsanitize=fuzzer")
 endforeach()
 
-foreach(TARGET in ${DBLOAD_TARGETS})
+foreach(TARGET ${DBLOAD_TARGETS})
     add_executable(clamav_dbload_${TARGET}_fuzzer)
     target_sources(clamav_dbload_${TARGET}_fuzzer
         PRIVATE clamav_dbload_fuzzer.cpp)
-    target_compile_definitions(clamav_dbload_${TARGET}_fuzzer PUBLIC CLAMAV_FUZZ_${SCAN_TARGETS})
+    target_compile_definitions(clamav_dbload_${TARGET}_fuzzer PUBLIC CLAMAV_FUZZ_${TARGET})
     target_link_libraries(clamav_dbload_${TARGET}_fuzzer ClamAV::libclamav)
     set_target_properties(clamav_dbload_${TARGET}_fuzzer PROPERTIES LINK_FLAGS "-fsanitize=fuzzer")
 endforeach()

@@ -1,7 +1,7 @@
 /*
  *  Unit tests for bytecode functions.
  *
- *  Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2009-2013 Sourcefire, Inc.
  *
  *  Authors: Török Edvin
@@ -40,6 +40,7 @@
 #include "dconf.h"
 #include "bytecode_priv.h"
 #include "pe.h"
+#include "clamav_rust.h"
 
 #include "checks.h"
 
@@ -72,13 +73,23 @@ static void runtest(const char *file, uint64_t expected, int fail, int nojit,
     cctx.options = &options;
 
     cctx.options->general |= CL_SCAN_GENERAL_ALLMATCHES;
-    cctx.virname = &virname;
     cctx.engine = engine = cl_engine_new();
     ck_assert_msg(!!cctx.engine, "cannot create engine");
     rc = cl_engine_compile(engine);
     ck_assert_msg(!rc, "cannot compile engine");
-    cctx.fmap = cli_calloc(sizeof(fmap_t *), engine->maxreclevel + 2);
-    ck_assert_msg(!!cctx.fmap, "cannot allocate fmap");
+
+    cctx.evidence = evidence_new();
+
+    cctx.dconf = cctx.engine->dconf;
+
+    cctx.recursion_stack_size = cctx.engine->max_recursion_level;
+    cctx.recursion_stack      = cli_calloc(sizeof(recursion_level_t), cctx.recursion_stack_size);
+    ck_assert_msg(!!cctx.recursion_stack, "cli_calloc() for recursion_stack failed");
+
+    // ctx was memset, so recursion_level starts at 0.
+    cctx.recursion_stack[cctx.recursion_level].fmap = NULL;
+
+    cctx.fmap = cctx.recursion_stack[cctx.recursion_level].fmap;
 
     ck_assert_msg(fd >= 0, "retmagic open failed");
     f = fdopen(fd, "r");
@@ -100,13 +111,13 @@ static void runtest(const char *file, uint64_t expected, int fail, int nojit,
     ck_assert_msg(rc == CL_SUCCESS, "cli_bytecode_load failed");
     fclose(f);
 
-    if (testmode && have_clamjit)
+    if (testmode && have_clamjit())
         engine->bytecode_mode = CL_BYTECODE_MODE_TEST;
 
     rc = cli_bytecode_prepare2(engine, &bcs, BYTECODE_ENGINE_MASK);
     ck_assert_msg(rc == CL_SUCCESS, "cli_bytecode_prepare failed");
 
-    if (have_clamjit && !nojit && nojit != -1 && !testmode) {
+    if (have_clamjit() && !nojit && !testmode) {
         ck_assert_msg(bc.state == bc_jit, "preparing for JIT failed");
     }
 
@@ -136,7 +147,7 @@ static void runtest(const char *file, uint64_t expected, int fail, int nojit,
 
     if (rc == CL_SUCCESS) {
         v = cli_bytecode_context_getresult_int(ctx);
-        ck_assert_msg(v == expected, "Invalid return value from bytecode run, expected: %llx, have: %llx\n",
+        ck_assert_msg(v == expected, "Invalid return value from bytecode run, expected: " STDx64 ", have: " STDx64 "\n",
                       expected, v);
     }
     if (infile && expectedvirname) {
@@ -149,8 +160,9 @@ static void runtest(const char *file, uint64_t expected, int fail, int nojit,
         funmap(map);
     cli_bytecode_destroy(&bc);
     cli_bytecode_done(&bcs);
-    free(cctx.fmap);
+    free(cctx.recursion_stack);
     cl_engine_free(engine);
+    evidence_free(cctx.evidence);
     if (fdin >= 0)
         close(fdin);
 }

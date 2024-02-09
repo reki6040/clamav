@@ -43,7 +43,7 @@ The following cache variables may also be set:
 
 find_package(PkgConfig QUIET)
 # First try for NCurses
-pkg_check_modules(PC_NCurses QUIET ncurses)
+pkg_search_module (PC_NCurses QUIET ncurses ncursesw)
 
 find_path(NCURSES_INCLUDE_DIR
   NAMES ncurses.h
@@ -58,12 +58,14 @@ if(NCURSES_NOT_FOUND EQUAL -1)
     set(HAVE_LIBNCURSES 1)
     set(CURSES_INCLUDE "<ncurses.h>")
 
-    find_library(CURSES_LIBRARY
-      NAMES ncurses
-      PATHS ${PC_NCurses_LIBRARY_DIRS}
-    )
-
-    set(CURSES_VERSION ${PC_NCurses_VERSION})
+    if (DEFINED PC_NCurses_LINK_LIBRARIES)
+        set(CURSES_LIBRARY ${PC_NCurses_LINK_LIBRARIES})
+    else()
+        find_library(CURSES_LIBRARY
+            NAMES ncurses ncursesw
+            PATHS ${PC_NCurses_LIBRARY_DIRS}
+        )
+    endif()
 
     include(FindPackageHandleStandardArgs)
     find_package_handle_standard_args(CURSES

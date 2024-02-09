@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2007-2013 Sourcefire, Inc.
  *  Copyright (C) 2002-2007 Tomasz Kojm <tkojm@clamav.net>
  *
@@ -88,5 +88,8 @@ fc_error_t updatecustomdb(
     int *signo,
     char **dbFilename,
     int *bUpdated);
+
+#define DNS_WARNING_THRESHOLD_HOURS 12
+#define DNS_WARNING_THRESHOLD_SECONDS (DNS_WARNING_THRESHOLD_HOURS * 60 * 60)
 
 #endif // __LIBFRESHCLAM_INTERNAL_H

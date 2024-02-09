@@ -29,10 +29,15 @@ set(DISABLE_MPOOL
 set(BYTECODE_RUNTIME
     "interpreter" CACHE STRING
     "Bytecode Runtime, may be: 'llvm', 'interpreter', 'none'.")
+set_property(CACHE BYTECODE_RUNTIME PROPERTY STRINGS llvm interpreter none)
 
 option(OPTIMIZE
     "Allow compiler optimizations.  Set to OFF to disable (i.e. to set -O0)."
     ON)
+
+option(MAINTAINER_MODE
+    "Update generated sources. Requires flex, bison."
+    ${MAINTAINER_MODE_DEFAULT})
 
 option(ENABLE_WERROR
     "Compile time warnings will cause build failures.")
@@ -110,3 +115,11 @@ option(ENABLE_UNRAR
 option(ENABLE_SYSTEMD
     "Install systemd service files if systemd is found."
     ${ENABLE_SYSTEMD_DEFAULT})
+
+# For reference determining target platform:
+#  Rust Targets:  https://doc.rust-lang.org/nightly/rustc/platform-support.html
+option(RUST_COMPILER_TARGET
+    "Use a custom target triple to build the Rust components. Needed for cross-compiling.")
+
+option(DO_NOT_SET_RPATH
+    "Don't set the RPATH on UNIX systems.")

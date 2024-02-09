@@ -1,7 +1,7 @@
 /*
  *  Unit tests for clamd.
  *
- *  Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2009-2013 Sourcefire, Inc.
  *
  *  Authors: Török Edvin
@@ -148,11 +148,6 @@ static void conn_teardown(void)
 
 #define NONEXISTENT_REPLY NONEXISTENT ": File path check failure: No such file or directory. ERROR"
 
-#ifndef _WIN32
-#define ACCDENIED OBJDIR PATHSEP "accdenied"
-#define ACCDENIED_REPLY ": Access denied. ERROR"
-#endif
-
 static int isroot = 0;
 
 static void commands_setup(void)
@@ -169,22 +164,7 @@ static void commands_setup(void)
     ck_assert_msg(fd == -1, "Nonexistent file exists!\n");
 
 #ifndef _WIN32
-    /*
-     * Prepare a file path that is write-only.
-     * Note: doesn't work on Windows (O_RWONLY is implicitly readable), so we skip this test on Windows.
-     */
-    fd = open(ACCDENIED, O_CREAT | O_WRONLY, S_IWUSR);
-    ck_assert_msg(fd != -1,
-                  "Failed to create file for access denied tests: %s\n", strerror(errno));
-    ck_assert_msg(fchmod(fd, S_IWUSR) != -1,
-                  "Failed to chmod: %s\n", strerror(errno));
-    /* must not be empty file */
-    ck_assert_msg((size_t)write(fd, nonempty, strlen(nonempty)) == strlen(nonempty),
-                  "Failed to write into testfile: %s\n", strerror(errno));
-    close(fd);
-
-    /* Prepare the "isroot" global so we can skip the access-denied tests when run as root
-       because... you know, root will ignore permissions and still read the file. */
+    /* Prepare the "isroot" global so we can skip some tests when run as root */
     if (!geteuid()) {
         isroot = 1;
     }
@@ -233,12 +213,6 @@ static struct basic_test {
     {"SCAN " NONEXISTENT, NULL, NONEXISTENT_REPLY, 1, 0, IDS_OK},
     {"CONTSCAN " NONEXISTENT, NULL, NONEXISTENT_REPLY, 1, 0, IDS_REJECT},
     {"MULTISCAN " NONEXISTENT, NULL, NONEXISTENT_REPLY, 1, 0, IDS_REJECT},
-/* commands for access denied files */
-#ifndef _WIN32
-    {"SCAN " ACCDENIED, NULL, ACCDENIED_REPLY, 1, 1, IDS_OK},
-    {"CONTSCAN " ACCDENIED, NULL, ACCDENIED_REPLY, 1, 1, IDS_REJECT},
-    {"MULTISCAN " ACCDENIED, NULL, ACCDENIED_REPLY, 1, 1, IDS_REJECT},
-#endif
     /* commands with invalid/missing arguments */
     {"SCAN", NULL, UNKNOWN_REPLY, 1, 0, IDS_REJECT},
     {"CONTSCAN", NULL, UNKNOWN_REPLY, 1, 0, IDS_REJECT},
@@ -250,23 +224,30 @@ static struct basic_test {
 
 static void *recvpartial(int sd, size_t *len, int partial)
 {
-    char *buf  = NULL;
-    size_t off = 0;
-    int rc;
+    char *buf       = NULL;
+    size_t buf_size = 0;
+    size_t off      = 0;
+    ssize_t bread;
 
     *len = 0;
+
     do {
-        if (off + BUFSIZ > *len) {
-            *len += BUFSIZ + 1;
-            buf = realloc(buf, *len);
+        if (off + BUFSIZ > buf_size) {
+            buf_size += BUFSIZ + 1;
+            buf = realloc(buf, buf_size);
             ck_assert_msg(!!buf, "Cannot realloc buffer\n");
         }
-        rc = recv(sd, buf + off, BUFSIZ, 0);
-        ck_assert_msg(rc != -1, "recv() failed: %s\n", strerror(errno));
-        off += rc;
-    } while (rc && (!partial || !memchr(buf, '\0', off)));
-    *len      = off;
-    buf[*len] = '\0';
+        bread = recv(sd, buf + off, BUFSIZ, 0);
+        ck_assert_msg(bread != -1, "recv() failed: %s\n", strerror(errno));
+
+        off += bread;
+    } while (bread && (!partial || !memchr(buf, '\0', off)));
+
+    // Make sure the response buffer is NULL terminated.
+    // But note that off-1 will likely be a '\n' newline character, and we don't want to overwrite that.
+    buf[MIN(off, buf_size - 1)] = '\0';
+
+    *len = off;
     return buf;
 }
 
@@ -356,7 +337,7 @@ START_TEST(test_compat_commands)
 
     if (!test->extra) {
         /* FILDES won't support this, because it expects
-	 * strlen("FILDES\n") characters, then 1 character and the FD. */
+         * strlen("FILDES\n") characters, then 1 character and the FD. */
         /* one packet, \r\n delimited command, followed by "extra" if needed */
         snprintf(nsend, sizeof(nsend), "%s\r\n", test->command);
         conn_setup();
@@ -542,7 +523,7 @@ static struct cmds {
 START_TEST(test_fildes)
 {
     char nreply[BUFSIZ], nsend[BUFSIZ];
-    int fd        = open(SCANFILE, O_RDONLY);
+    int fd;
     int closefd   = 0;
     int singlemsg = 0;
     const struct cmds *cmd;
@@ -578,8 +559,8 @@ START_TEST(test_fildes)
 
     if (!closefd) {
         /* closefd:
-	 *  1 - close fd right after sending
-	 *  0 - close fd after receiving reply */
+         *  1 - close fd right after sending
+         *  0 - close fd after receiving reply */
         close(fd);
     }
 }
@@ -698,6 +679,7 @@ START_TEST(test_connections)
     num_fds = MIN(rlim.rlim_cur - 5, 250);
 
     sock = malloc(sizeof(int) * num_fds);
+    memset(sock, -1, sizeof(int) * num_fds);
 
     ck_assert_msg(!!sock, "malloc failed\n");
 
@@ -707,8 +689,10 @@ START_TEST(test_connections)
         if (sockd == -1) {
             /* close the previous one, to leave space for one more connection */
             i--;
-            close(sock[i]);
-            sock[i] = -1;
+            if (sock[i] > 0) {
+                close(sock[i]);
+                sock[i] = -1;
+            }
 
             num_fds = i;
             break;
@@ -794,7 +778,7 @@ static void test_idsession_commands(int split, int instream)
         if (instream && test->ids == IDS_END) {
             uint32_t chunk;
             /* IDS_END - in middle of other commands, perfect for inserting
-	     * INSTREAM */
+             * INSTREAM */
             ck_assert_msg(p + sizeof(INSTREAM_CMD) + 544 < buf + sizeof(buf), "Buffer too small");
             memcpy(p, INSTREAM_CMD, sizeof(INSTREAM_CMD));
             p += sizeof(INSTREAM_CMD);

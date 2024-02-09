@@ -1,4 +1,4 @@
-# Copyright (C) 2020-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+# Copyright (C) 2020-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
 
 # The clamonacc executable.
 add_executable( clamonacc )
@@ -44,6 +44,7 @@ target_include_directories( clamonacc
 )
 
 set_target_properties( clamonacc PROPERTIES COMPILE_FLAGS "${WARNCFLAGS}" )
+
 target_link_libraries( clamonacc
     PRIVATE
         ClamAV::libclamav

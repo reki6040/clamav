@@ -1,4 +1,4 @@
-# Copyright (C) 2020-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+# Copyright (C) 2020-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
 
 if(WIN32)
     add_definitions(-DWIN32_LEAN_AND_MEAN)
@@ -22,12 +22,21 @@ target_include_directories( clamconf
     PRIVATE ${CMAKE_BINARY_DIR} # For clamav-config.h
 )
 set_target_properties( clamconf PROPERTIES COMPILE_FLAGS "${WARNCFLAGS}" )
+
+if (APPLE AND CLAMAV_SIGN_FILE)
+    set_target_properties( clamconf PROPERTIES
+        XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY ${CODE_SIGN_IDENTITY}
+        XCODE_ATTRIBUTE_DEVELOPMENT_TEAM ${DEVELOPMENT_TEAM_ID}
+    )
+endif()
+
 target_link_libraries( clamconf
     PRIVATE
         ClamAV::libclamav
         ClamAV::common )
 if(WIN32)
     install(TARGETS clamconf DESTINATION . COMPONENT programs)
+    install(FILES $<TARGET_PDB_FILE:clamconf> DESTINATION . OPTIONAL COMPONENT programs)
 else()
     install(TARGETS clamconf DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT programs)
 endif()

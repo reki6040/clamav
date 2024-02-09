@@ -1,7 +1,7 @@
 /*
  *  Byte comparison matcher support functions
  *
- *  Copyright (C) 2018-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2018-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *
  *  Authors: Mickey Sola
  *
@@ -75,6 +75,8 @@ cl_error_t cli_bcomp_addpatt(struct cli_matcher *root, const char *virname, cons
     char *comp_start     = NULL;
     char *comp_end       = NULL;
 
+    UNUSEDPARAM(options);
+
     if (!hexsig || !(*hexsig) || !root || !virname) {
         return CL_ENULLARG;
     }
@@ -91,18 +93,8 @@ cl_error_t cli_bcomp_addpatt(struct cli_matcher *root, const char *virname, cons
         return CL_EMEM;
     }
 
-    /* allocate virname space with the root structure's mempool instance */
-    bcomp->virname = (char *)CLI_MPOOL_VIRNAME(root->mempool, virname, options & CL_DB_OFFICIAL);
-    if (!bcomp->virname) {
-        cli_errmsg("cli_bcomp_addpatt: Unable to allocate memory for virname or NULL virname\n");
-        cli_bcomp_freemeta(root, bcomp);
-        return CL_EMEM;
-    }
-
     /* bring along the standard lsigid vector, first param marks validity of vector, 2nd is lsigid, 3rd is subsigid */
     if (lsigid) {
-        root->ac_lsigtable[lsigid[0]]->virname = bcomp->virname;
-
         bcomp->lsigid[0] = 1;
         bcomp->lsigid[1] = lsigid[0];
         bcomp->lsigid[2] = lsigid[1];
@@ -300,7 +292,7 @@ cl_error_t cli_bcomp_addpatt(struct cli_matcher *root, const char *virname, cons
     /* parse out the byte length parameter */
     buf_end     = NULL;
     byte_length = strtol(buf_start, (char **)&buf_end, 0);
-    if (buf_end && buf_end + 1 != tokens[2]) {
+    if ((buf_end && buf_end + 1 != tokens[2]) || (0 == byte_length)) {
         cli_errmsg("cli_bcomp_addpatt: while parsing (%s#%s#%s), byte length parameter included invalid characters\n", tokens[0], tokens[1], tokens[2]);
         free(buf);
         cli_bcomp_freemeta(root, bcomp);
@@ -368,7 +360,7 @@ cl_error_t cli_bcomp_addpatt(struct cli_matcher *root, const char *virname, cons
     for (i = 0; i < bcomp->comp_count; i++) {
 
         bcomp->comps[i] = (struct cli_bcomp_comp *)MPOOL_CALLOC(root->mempool, 1, sizeof(struct cli_bcomp_comp));
-        if (!bcomp->virname) {
+        if (!bcomp->comps[i]) {
             cli_errmsg("cli_bcomp_addpatt: unable to allocate memory for comp struct\n");
             free(buf);
             free((void *)buf_start);
@@ -457,13 +449,14 @@ cl_error_t cli_bcomp_addpatt(struct cli_matcher *root, const char *virname, cons
  * @param ctx the clamav context struct
  *
  */
-cl_error_t cli_bcomp_scanbuf(const unsigned char *buffer, size_t buffer_length, const char **virname, struct cli_ac_result **res, const struct cli_matcher *root, struct cli_ac_data *mdata, cli_ctx *ctx)
+cl_error_t cli_bcomp_scanbuf(const unsigned char *buffer, size_t buffer_length, struct cli_ac_result **res, const struct cli_matcher *root, struct cli_ac_data *mdata, cli_ctx *ctx)
 {
-
-    int64_t i = 0, val = 0, ret = CL_SUCCESS;
+    size_t i;
+    int val                = 0;
+    cl_error_t ret         = CL_SUCCESS;
+    cl_error_t bcomp_check = CL_SUCCESS;
     uint32_t lsigid, ref_subsigid;
     uint32_t offset              = 0;
-    uint8_t viruses_found        = 0;
     struct cli_bcomp_meta *bcomp = NULL;
     struct cli_ac_result *newres = NULL;
 
@@ -488,15 +481,9 @@ cl_error_t cli_bcomp_scanbuf(const unsigned char *buffer, size_t buffer_length, 
 
             /* verify the ref_subsigid */
             val = cli_ac_chklsig(subsigid, subsigid + strlen(subsigid), mdata->lsigcnt[bcomp->lsigid[1]], &evalcnt, &evalids, 0);
-
             if (val != 1) {
                 bcm_dbgmsg("cli_bcomp_scanbuf: could not verify a match for lsig reference subsigid (%s)\n", subsigid);
                 continue;
-            }
-
-            /* ensures the referenced subsig matches as expected, and also ensures mdata has the needed offset */
-            if ((ret = lsig_sub_matched(root, mdata, lsigid, ref_subsigid, CLI_OFF_NONE, 0))) {
-                break;
             }
 
             /* grab the needed offset using from the last matched subsig offset matrix, i.e. the match performed above */
@@ -507,7 +494,7 @@ cl_error_t cli_bcomp_scanbuf(const unsigned char *buffer, size_t buffer_length, 
                 continue;
             }
         } else {
-            /* can't run lsig_sub_matched in sigtool, and mdata isn't populated so run the raw matcher stuffs */
+            /* mdata isn't populated in sigtool so run the raw matcher stuffs */
             if (res) {
                 newres = (struct cli_ac_result *)cli_calloc(1, sizeof(struct cli_ac_result));
                 if (!newres) {
@@ -515,7 +502,7 @@ cl_error_t cli_bcomp_scanbuf(const unsigned char *buffer, size_t buffer_length, 
                     ret = CL_EMEM;
                     break;
                 }
-                newres->virname    = bcomp->virname;
+                newres->virname    = "test";
                 newres->customdata = NULL;
                 newres->next       = *res;
                 *res               = newres;
@@ -528,27 +515,22 @@ cl_error_t cli_bcomp_scanbuf(const unsigned char *buffer, size_t buffer_length, 
         }
 
         /* now we have all the pieces of the puzzle, so lets do our byte compare check */
-        ret = cli_bcomp_compare_check(buffer, buffer_length, offset, bcomp);
+        bcomp_check = cli_bcomp_compare_check(buffer, buffer_length, offset, bcomp);
 
-        /* set and append our lsig's virus name if the comparison came back positive */
-        if (CL_VIRUS == ret) {
-            viruses_found = 1;
-
-            if (virname) {
-                *virname = bcomp->virname;
-            }
-            /* if we aren't scanning all, let's just exit here */
-            if (!SCAN_ALLMATCHES) {
-                break;
+        /* Increase the lsig count for our subsig if the comparison came back positive.
+         * Later, the lsig-eval will evaluate the logical condition, based on these counts
+         * and will append the virus alert if the whole logical signature matches. */
+        if (CL_VIRUS == bcomp_check) {
+            /* check to see if we are being run in sigtool or not */
+            if (bcomp->lsigid[0]) {
+                mdata->lsigcnt[bcomp->lsigid[1]][bcomp->lsigid[2]]++;
             } else {
-                ret = cli_append_virus(ctx, (const char *)bcomp->virname);
+                /* Run by sigtool's --test-sigs feature without context of whole lsig or previous subsigs */
+                ret = cli_append_virus(ctx, "test");
             }
         }
     }
 
-    if (ret == CL_SUCCESS && viruses_found) {
-        return CL_VIRUS;
-    }
     return ret;
 }
 
@@ -1006,20 +988,14 @@ unsigned char *cli_bcomp_normalize_buffer(const unsigned char *buffer, uint32_t 
 void cli_bcomp_freemeta(struct cli_matcher *root, struct cli_bcomp_meta *bm)
 {
 
-    int i = 0;
+    uint32_t i = 0;
 
     if (!root || !bm) {
         return;
     }
 
-    if (bm->virname) {
-        MPOOL_FREE(root->mempool, bm->virname);
-        bm->virname = NULL;
-    }
-
-    /* can never have more than 2 */
     if (bm->comps) {
-        for (i = 0; i < 2; i++) {
+        for (i = 0; i < bm->comp_count; i++) {
             if (bm->comps[i]) {
                 MPOOL_FREE(root->mempool, bm->comps[i]);
                 bm->comps[i] = NULL;

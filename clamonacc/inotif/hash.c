@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2015-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2015-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *
  *  Authors: Mickey Sola
  *
@@ -58,7 +58,7 @@
 
 #if defined(HAVE_SYS_FANOTIFY_H)
 
-static struct onas_bucket *onas_bucket_init();
+static struct onas_bucket *onas_bucket_init(void);
 static void onas_free_bucket(struct onas_bucket *bckt);
 static int onas_bucket_insert(struct onas_bucket *bckt, struct onas_element *elem);
 static int onas_bucket_remove(struct onas_bucket *bckt, struct onas_element *elem);
@@ -545,7 +545,7 @@ cl_error_t onas_rm_listnode(struct onas_lnode *head, const char *dirname)
 
     while ((curr = curr->next)) {
         if (NULL == curr->dirname) {
-            logg("*ClamHash: node's directory name is NULL!\n");
+            logg(LOGG_DEBUG, "ClamHash: node's directory name is NULL!\n");
             return CL_ERROR;
         } else if (!strncmp(curr->dirname, dirname, n)) {
             if (curr->next != NULL)
@@ -688,7 +688,7 @@ int onas_ht_add_hierarchy(struct onas_ht *ht, const char *pathname)
 
     char *const pathargv[] = {(char *)pathname, NULL};
     if (!(ftsp = _priv_fts_open(pathargv, ftspopts, NULL))) {
-        logg("!ClamHash: could not open '%s'\n", pathname);
+        logg(LOGG_ERROR, "ClamHash: could not open '%s'\n", pathname);
         ret = CL_EARG;
         goto out;
     }

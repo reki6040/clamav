@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2020-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2020-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *
  *  Author: Mickey Sola
  *
@@ -83,7 +83,7 @@ int onas_get_sockd()
         if (connect(sockd, (struct sockaddr *)&onas_sock.sock, sizeof(onas_sock.sock)) == 0)
             return sockd;
         else {
-            logg("!ClamSock: Could not connect to clamd on LocalSocket \n");
+            logg(LOGG_ERROR, "ClamSock: Could not connect to clamd on LocalSocket \n");
             closesocket(sockd);
         }
     }

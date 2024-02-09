@@ -1,7 +1,7 @@
 /*
  *  Extract VBA source code for component MS Office Documents
  *
- *  Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2007-2013 Sourcefire, Inc.
  *
  *  Authors: Trog, Nigel Horne
@@ -293,8 +293,8 @@ static size_t vba_normalize(unsigned char *buffer, size_t size)
     size_t o = 0;
     size_t i;
     for (i = 0; i < size; ++i) {
-        //TODO: Don't normalize stuff in comments
-        //FIXME: Use UTF glyphs instead of raw bytes
+        // TODO: Don't normalize stuff in comments
+        // FIXME: Use UTF glyphs instead of raw bytes
         switch (buffer[i]) {
             case '"':
                 if (state == IN_STRING) {
@@ -358,7 +358,7 @@ static size_t vba_normalize(unsigned char *buffer, size_t size)
  * Read a VBA project in an OLE directory.
  * Contrary to cli_vba_readdir, this function uses the dir file to locate VBA modules.
  */
-cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, const char *hash, uint32_t which, int *tempfd, int *has_macros)
+cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, const char *hash, uint32_t which, int *tempfd, int *has_macros, char **tempfile)
 {
     cl_error_t ret = CL_SUCCESS;
     char fullname[1024];
@@ -367,7 +367,6 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
     size_t data_len;
     size_t data_offset;
     const char *stream_name = NULL;
-    char *tempfile          = NULL;
     uint16_t codepage       = CODEPAGE_ISO8859_1;
     unsigned i;
     char *mbcs_name = NULL, *utf16_name = NULL;
@@ -375,7 +374,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
     unsigned char *module_data = NULL, *module_data_utf8 = NULL;
     size_t module_data_size = 0, module_data_utf8_size = 0;
 
-    if (dir == NULL || hash == NULL || tempfd == NULL || has_macros == NULL) {
+    if (dir == NULL || hash == NULL || tempfd == NULL || has_macros == NULL || tempfile == NULL) {
         return CL_EARG;
     }
 
@@ -398,12 +397,12 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
 
     *has_macros = *has_macros + 1;
 
-    if ((ret = cli_gentempfd_with_prefix(ctx->sub_tmpdir, "vba_project", &tempfile, tempfd)) != CL_SUCCESS) {
+    if ((ret = cli_gentempfd_with_prefix(ctx->sub_tmpdir, "vba_project", tempfile, tempfd)) != CL_SUCCESS) {
         cli_warnmsg("vba_readdir_new: VBA project cannot be dumped to file\n");
         goto done;
     }
 
-    cli_dbgmsg("Dumping VBA project from dir %s to file %s\n", fullname, tempfile);
+    cli_dbgmsg("Dumping VBA project from dir %s to file %s\n", fullname, *tempfile);
 
 #define CLI_WRITEN(msg, size)                                                 \
     do {                                                                      \
@@ -489,7 +488,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
         }
 
         switch (id) {
-            //MS-OVBA 2.3.4.2.1.1 PROJECTSYSKIND
+            // MS-OVBA 2.3.4.2.1.1 PROJECTSYSKIND
             case 0x0001: {
                 if (size != sizeof(uint32_t)) {
                     cli_dbgmsg("cli_vba_readdir_new: Expected PROJECTSYSKIND record size (%" PRIu32 " != 4)\n", size);
@@ -525,7 +524,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                 CLI_WRITEN("\n", 1);
                 break;
             }
-            //MS-OVBA 2.3.4.2.1.2 PROJECTLCID
+            // MS-OVBA 2.3.4.2.1.2 PROJECTLCID
             case 0x0002: {
                 if (size != sizeof(uint32_t)) {
                     cli_dbgmsg("cli_vba_readdir_new: Expected PROJECTLCID record size (%" PRIu32 " != 4)\n", size);
@@ -542,7 +541,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                 }
                 break;
             }
-            //MS-OVBA 2.3.4.2.1.3 PROJECTLCIDINVOKE
+            // MS-OVBA 2.3.4.2.1.3 PROJECTLCIDINVOKE
             case 0x0014: {
                 if (size != sizeof(uint32_t)) {
                     cli_dbgmsg("cli_vba_readdir_new: Expected PROJECTLCIDINVOKE record size (%" PRIu32 " != 4)\n", size);
@@ -559,7 +558,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                 }
                 break;
             }
-            //MS-OVBA 2.3.4.2.1.4 PROJECTCODEPAGE
+            // MS-OVBA 2.3.4.2.1.4 PROJECTCODEPAGE
             case 0x0003: {
                 if (size != sizeof(uint16_t)) {
                     cli_dbgmsg("cli_vba_readdir_new: Expected PROJECTCODEPAGE record size (%" PRIu32 " != 2)\n", size);
@@ -576,7 +575,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                 }
                 break;
             }
-            //MS-OVBA 2.3.4.2.1.5 PROJECTNAME
+            // MS-OVBA 2.3.4.2.1.5 PROJECTNAME
             case 0x0004: {
                 if (size < 1 || size > 128) {
                     cli_dbgmsg("cli_vba_readdir_new: Expected PROJECTNAME record size (1 <= %" PRIu32 " <= 128)\n", size);
@@ -590,7 +589,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                 CLI_WRITEN("\n", 1);
                 break;
             }
-            //MS-OVBA 2.3.4.2.1.6 PROJECTDOCSTRING
+            // MS-OVBA 2.3.4.2.1.6 PROJECTDOCSTRING
             case 0x0005: {
                 if (size > 2000) {
                     cli_dbgmsg("cli_vba_readdir_new: Expected PROJECTDOCSTRING record size (%" PRIu32 " <= 2000)\n", size);
@@ -604,7 +603,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                 CLI_WRITEN("\n", 1);
                 break;
             }
-            //MS-OVBA 2.3.4.2.1.6 PROJECTDOCSTRING Unicode
+            // MS-OVBA 2.3.4.2.1.6 PROJECTDOCSTRING Unicode
             case 0x0040: {
                 if (size % 2 != 0) {
                     cli_dbgmsg("cli_vba_readdir_new: Expected PROJECTDOCSTRINGUNICODE record size (%" PRIu32 " but should be even)\n", size);
@@ -617,7 +616,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                 CLI_WRITEN("\n", 1);
                 break;
             }
-            //MS-OVBA 2.3.4.2.1.7 PROJECTHELPFILEPATH
+            // MS-OVBA 2.3.4.2.1.7 PROJECTHELPFILEPATH
             case 0x0006: {
                 if (size > 260) {
                     cli_dbgmsg("cli_vba_readdir_new: Expected PROJECTHELPFILEPATH record size (%" PRIu32 " <= 260)\n", size);
@@ -678,7 +677,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                 CLI_WRITEN("\n", 1);
                 break;
             }
-            //MS-OVBA 2.3.4.2.1.8 PROJECTHELPCONTEXT
+            // MS-OVBA 2.3.4.2.1.8 PROJECTHELPCONTEXT
             case 0x0007: {
                 if (size != sizeof(uint32_t)) {
                     cli_dbgmsg("cli_vba_readdir_new: Expected PROJECTHELPCONTEXT record size (%" PRIu32 " != 4)\n", size);
@@ -695,7 +694,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                 }
                 break;
             }
-            //MS-OVBA 2.3.4.2.1.9 PROJECTLIBFLAGS
+            // MS-OVBA 2.3.4.2.1.9 PROJECTLIBFLAGS
             case 0x0008: {
                 if (size != sizeof(uint32_t)) {
                     cli_dbgmsg("cli_vba_readdir_new: Expected PROJECTLIBFLAGS record size (%" PRIu32 " != 4)\n", size);
@@ -712,9 +711,9 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                 }
                 break;
             }
-            //MS-OVBA 2.3.4.2.1.10 PROJECTVERSION
+            // MS-OVBA 2.3.4.2.1.10 PROJECTVERSION
             case 0x0009: {
-                //The PROJECTVERSION record size is expected to be 4, even though the record size is 6.
+                // The PROJECTVERSION record size is expected to be 4, even though the record size is 6.
                 if (size != 4) {
                     cli_dbgmsg("cli_vba_readdir_new: Expected PROJECTVERSION record size (%" PRIu32 " != 4)\n", size);
                     ret = CL_EREAD;
@@ -738,7 +737,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                 }
                 break;
             }
-            //MS-OVBA 2.3.4.2.3 PROJECTMODULES
+            // MS-OVBA 2.3.4.2.3 PROJECTMODULES
             case 0x000f: {
                 if (size != sizeof(uint16_t)) {
                     cli_dbgmsg("cli_vba_readdir_new: Expected PROJECTMODULES record size\n");
@@ -755,7 +754,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                 }
                 break;
             }
-            //MS-OVBA 2.3.4.2.3.1 PROJECTCOOKIE
+            // MS-OVBA 2.3.4.2.3.1 PROJECTCOOKIE
             case 0x0013: {
                 if (size != sizeof(uint16_t)) {
                     cli_dbgmsg("cli_vba_readdir_new: Expected PROJECTCOOKIE record size\n");
@@ -772,10 +771,10 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                 }
                 break;
             }
-            //MS-OVBA 2.3.4.2.3.2 MODULE record
+            // MS-OVBA 2.3.4.2.3.2 MODULE record
             case 0x0019: {
 
-                //MS-OVBA 2.3.4.2.3.2.1 MODULENAME
+                // MS-OVBA 2.3.4.2.3.2.1 MODULENAME
                 CLI_WRITEN("\n\nREM MODULENAME: ", 18);
                 if (size > 0) {
                     if (CL_SUCCESS == cli_codepage_to_utf8((char *)&data[data_offset], size, codepage, &mbcs_name, &mbcs_name_size)) {
@@ -787,7 +786,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                 }
                 data_offset += size;
 
-                //MS-OVBA 2.3.4.2.3.2.2 MODULENAMEUNICODE
+                // MS-OVBA 2.3.4.2.3.2.2 MODULENAMEUNICODE
                 cli_dbgmsg("Reading MODULENAMEUNICODE record\n");
                 if (sizeof(uint16_t) + sizeof(uint32_t) > data_len - data_offset) {
                     cli_dbgmsg("vba_readdir_new: MODULENAMEUNICODE record stretches past the end of the file\n");
@@ -836,7 +835,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                     utf16_name = NULL;
                 }
 
-                //MS-OVBA 2.3.4.2.3.2.3 MODULESTREAMNAME
+                // MS-OVBA 2.3.4.2.3.2.3 MODULESTREAMNAME
                 cli_dbgmsg("Reading MODULESTREAMNAME record\n");
                 if (sizeof(uint16_t) + sizeof(uint32_t) > data_len - data_offset) {
                     cli_dbgmsg("vba_readdir_new: MODULESTREAMNAME record stretches past the end of the file\n");
@@ -919,7 +918,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                     utf16_name = NULL;
                 }
 
-                //MS-OVBA 2.3.4.2.3.2.4 MODULEDOCSTRING
+                // MS-OVBA 2.3.4.2.3.2.4 MODULEDOCSTRING
                 cli_dbgmsg("Reading MODULEDOCSTRING record\n");
                 if (sizeof(uint16_t) + sizeof(uint32_t) > data_len - data_offset) {
                     cli_dbgmsg("vba_readdir_new: MODULEDOCSTRING record stretches past the end of the file\n");
@@ -1001,7 +1000,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                     utf16_name = NULL;
                 }
 
-                //MS-OVBA 2.3.4.2.3.2.5 MODULEOFFSET
+                // MS-OVBA 2.3.4.2.3.2.5 MODULEOFFSET
                 cli_dbgmsg("Reading MODULEOFFSET record\n");
                 if (sizeof(uint16_t) + sizeof(uint32_t) > data_len - data_offset) {
                     cli_dbgmsg("vba_readdir_new: MODULEOFFSET record stretches past the end of the file\n");
@@ -1037,7 +1036,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                     CLI_WRITEN(buffer, (size_t)buffer_size);
                 }
 
-                //MS-OVBA 2.3.4.2.3.2.6 MODULEHELPCONTEXT
+                // MS-OVBA 2.3.4.2.3.2.6 MODULEHELPCONTEXT
                 cli_dbgmsg("Reading MODULEHELPCONTEXT record\n");
                 if (sizeof(uint16_t) + sizeof(uint32_t) > data_len - data_offset) {
                     cli_dbgmsg("vba_readdir_new: MODULEHELPCONTEXT record stretches past the end of the file\n");
@@ -1073,7 +1072,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                     CLI_WRITEN(buffer, (size_t)buffer_size);
                 }
 
-                //MS-OVBA 2.3.4.2.3.2.7 MODULECOOKIE
+                // MS-OVBA 2.3.4.2.3.2.7 MODULECOOKIE
                 cli_dbgmsg("Reading MODULECOOKIE record\n");
                 if (sizeof(uint16_t) + sizeof(uint32_t) > data_len - data_offset) {
                     cli_dbgmsg("vba_readdir_new: MODULECOOKIE record stretches past the end of the file\n");
@@ -1108,7 +1107,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                     CLI_WRITEN(buffer, (size_t)buffer_size);
                 }
 
-                //MS-OVBA 2.3.4.2.3.2.8 MODULETYPE
+                // MS-OVBA 2.3.4.2.3.2.8 MODULETYPE
                 if (sizeof(uint16_t) + sizeof(uint32_t) > data_len - data_offset) {
                     cli_dbgmsg("vba_readdir_new: MODULETYPE record stretches past the end of the file\n");
                     ret = CL_EREAD;
@@ -1135,7 +1134,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                     CLI_WRITEN("\nREM MODULETYPE: Class", 22);
                 }
 
-                //MS-OVBA 2.3.4.2.3.2.9 MODULEREADONLY
+                // MS-OVBA 2.3.4.2.3.2.9 MODULEREADONLY
                 if (sizeof(uint16_t) > data_len - data_offset) {
                     cli_dbgmsg("vba_readdir_new: MODULEREADONLY record id field stretches past the end of the file\n");
                     ret = CL_EREAD;
@@ -1171,7 +1170,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                     data_offset += sizeof(uint16_t);
                 }
 
-                //MS-OVBA 2.3.4.2.3.2.10 MODULEPRIVATE
+                // MS-OVBA 2.3.4.2.3.2.10 MODULEPRIVATE
                 if (id == 0x0028) {
                     if (sizeof(uint32_t) > data_len - data_offset) {
                         cli_dbgmsg("vba_readdir_new: MODULEPRIVATE record size field stretches past the end of the file\n");
@@ -1198,7 +1197,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                     data_offset += sizeof(uint16_t);
                 }
 
-                //Terminator
+                // Terminator
                 if (id != 0x002b) {
                     cli_dbgmsg("cli_vba_readdir_new: Expected MODULETERMINATOR ....");
                     ret = CL_EREAD;
@@ -1259,10 +1258,20 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
                         module_data_utf8_size = vba_normalize(module_data_utf8, module_data_utf8_size);
 
                         CLI_WRITEN(module_data_utf8, module_data_utf8_size);
+
+                        if (NULL != ctx->engine->cb_vba) {
+                            ctx->engine->cb_vba(module_data_utf8, module_data_utf8_size, ctx->cb_ctx);
+                        }
+
                         module_stream_found = 1;
                         free(module_data_utf8);
                         module_data_utf8 = NULL;
                     } else {
+                        /*If normalization didn't work, fall back to the pre-normalized data.*/
+                        if (NULL != ctx->engine->cb_vba) {
+                            ctx->engine->cb_vba(module_data, module_data_size, ctx->cb_ctx);
+                        }
+
                         CLI_WRITEN("\n<Error decoding module data>\n", 30);
                         cli_dbgmsg("cli_vba_readdir_new: Failed to decode VBA module content from codepage %" PRIu16 " to UTF8\n", codepage);
                     }
@@ -1280,7 +1289,7 @@ cl_error_t cli_vba_readdir_new(cli_ctx *ctx, const char *dir, struct uniq *U, co
 
                 break;
             }
-            case 0x0010: { //Terminator
+            case 0x0010: { // Terminator
                 ret = CL_SUCCESS;
                 goto done;
             }
@@ -1304,9 +1313,6 @@ done:
     }
     if (stream_name) {
         free((void *)stream_name);
-    }
-    if (tempfile) {
-        free(tempfile);
     }
     if (ret != CL_SUCCESS && *tempfd >= 0) {
         close(*tempfd);
@@ -1352,8 +1358,8 @@ cli_vba_readdir(const char *dir, struct uniq *U, uint32_t which)
         return NULL;
 
     /*
-	 * _VBA_PROJECT files are embedded within office documents (OLE2)
-	 */
+     * _VBA_PROJECT files are embedded within office documents (OLE2)
+     */
 
     if (CL_SUCCESS != uniq_get(U, "_vba_project", 12, &hash, &hashcnt)) {
         cli_dbgmsg("vba_readdir: uniq_get('_vba_project') failed. Unable to check # of embedded vba proj files\n");
@@ -1720,15 +1726,25 @@ int cli_scan_ole10(int fd, cli_ctx *ctx)
         free(fullname);
         return CL_ECREAT;
     }
+
     cli_dbgmsg("cli_decode_ole_object: decoding to %s\n", fullname);
+
     ole_copy_file_data(fd, ofd, object_size);
+
     lseek(ofd, 0, SEEK_SET);
-    ret = cli_magic_scan_desc(ofd, fullname, ctx, NULL);
+
+    ret = cli_magic_scan_desc(ofd, fullname, ctx, NULL, LAYER_ATTRIBUTES_NONE);
+
     close(ofd);
-    if (ctx && !ctx->engine->keeptmp)
-        if (cli_unlink(fullname))
-            ret = CL_EUNLINK;
+
+    if (ctx && !ctx->engine->keeptmp) {
+        if (cli_unlink(fullname)) {
+            cli_dbgmsg("cli_decode_ole_object: Failed to remove temp file: %s\n", fullname);
+        }
+    }
+
     free(fullname);
+
     return ret;
 }
 
@@ -1788,6 +1804,8 @@ ppt_unlzw(const char *dir, int fd, uint32_t length)
         cli_warnmsg("ppt_unlzw: can't create %s\n", fullname);
         return FALSE;
     }
+
+    memset(&stream, 0, sizeof(stream));
 
     stream.zalloc    = Z_NULL;
     stream.zfree     = Z_NULL;
@@ -2231,10 +2249,8 @@ cli_wm_readdir(int fd)
     vba_project = create_vba_project(macro_info.count, "", NULL);
 
     if (vba_project) {
-        vba_project->length = (uint32_t *)cli_malloc(sizeof(uint32_t) *
-                                                     macro_info.count);
-        vba_project->key    = (unsigned char *)cli_malloc(sizeof(unsigned char) *
-                                                       macro_info.count);
+        vba_project->length = (uint32_t *)cli_malloc(sizeof(uint32_t) * macro_info.count);
+        vba_project->key    = (unsigned char *)cli_malloc(sizeof(unsigned char) * macro_info.count);
         if ((vba_project->length != NULL) &&
             (vba_project->key != NULL)) {
             int i;

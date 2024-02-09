@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2019-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2019-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *
  *  Authors: Mickey Sola
  *
@@ -26,7 +26,7 @@
 
 #include "../clamonacc.h"
 
-//void *onas_fan_th(void *arg);
+// void *onas_fan_th(void *arg);
 cl_error_t onas_setup_fanotif(struct onas_context **ctx);
 int onas_fan_eloop(struct onas_context **ctx);
 

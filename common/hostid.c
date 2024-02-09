@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2014-2021 Cisco and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2014-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *
  *  Author: Shawn Webb
  *
@@ -58,7 +58,7 @@ char *get_hostid(void *cbdata)
     if (!is_valid_hostid())
         return strdup(STATS_ANON_UUID);
 
-    logg("HostID is valid: %s\n", hostid);
+    logg(LOGG_INFO, "HostID is valid: %s\n", hostid);
 
     return strdup(hostid);
 }

@@ -1,4 +1,4 @@
-# Copyright (C) 2020-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+# Copyright (C) 2020-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
 
 if(WIN32)
     add_definitions(-DWIN32_LEAN_AND_MEAN)
@@ -31,8 +31,8 @@ target_sources( clamd
         thrmgr.c
         thrmgr.h )
 if(WIN32)
-    target_sources( clamd 
-    PRIVATE 
+    target_sources( clamd
+    PRIVATE
         ${CMAKE_SOURCE_DIR}/win32/res/clamd.rc
         ${CMAKE_SOURCE_DIR}/win32/res/clam.manifest )
 endif()
@@ -40,12 +40,21 @@ target_include_directories( clamd
     PRIVATE ${CMAKE_BINARY_DIR} # For clamav-config.h
 )
 set_target_properties( clamd PROPERTIES COMPILE_FLAGS "${WARNCFLAGS}" )
+
+if (APPLE AND CLAMAV_SIGN_FILE)
+    set_target_properties( clamd PROPERTIES
+        XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY ${CODE_SIGN_IDENTITY}
+        XCODE_ATTRIBUTE_DEVELOPMENT_TEAM ${DEVELOPMENT_TEAM_ID}
+    )
+endif()
+
 target_link_libraries( clamd
     PRIVATE
         ClamAV::libclamav
         ClamAV::common )
 if(WIN32)
     install(TARGETS clamd DESTINATION . COMPONENT programs)
+    install(FILES $<TARGET_PDB_FILE:clamd> DESTINATION . OPTIONAL COMPONENT programs)
 else()
     install(TARGETS clamd DESTINATION ${CMAKE_INSTALL_SBINDIR} COMPONENT programs)
 endif()

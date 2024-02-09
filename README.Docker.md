@@ -35,7 +35,19 @@ You can use the `unstable` version (i.e. `clamav/clamav:unstable` or
 
 While it is recommended to pull the image from our
 [Docker Hub registry](https://hub.docker.com/u/clamav/clamav), some may want
-to build the image locally instead. All that is needed is:
+to build the image locally instead.
+
+To do this, you will need to get the  `Dockerfile` and the supporting `scripts/`
+directory from the
+[clamav-docker Git repository](https://github.com/Cisco-Talos/clamav-docker).
+Be sure to select the correct one for this ClamAV release.
+
+> _Tip_: For unreleased ClamAV versions, such as when building from the `main`
+> git branch, you should select the files from the
+> `clamav-docker/clamav/unstable/<distro>` directory.
+
+Place the `Dockerfile` and `scripts/` directory in the ClamAV source directory.
+Then you can build the image. For example, run:
 ```bash
 docker build --tag "clamav:TICKET-123" .
 ```
@@ -84,6 +96,10 @@ beforehand to ensure the most up-to-date container is being used.
 Do not use `--pull always` with the larger ClamAV images.
 
 > _Tip_: It's common to see `-it` instead of `--interactive --tty`.
+
+In some situations it may be desirable to set (any of) the containers to a
+specific timezone. The `--env` parameter can be used to set the `TZ` variable
+to change the default of `Etc/UTC`.
 
 ### Running ClamD using a Locally Built Image
 
@@ -268,7 +284,7 @@ following flags can be passed to the `docker run` command with the
 So to additionally also enable `clamav-milter`, the following flag can be
 added:
 ```bash
-    --env 'CLAMAV_NO_MILTERED=false'
+    --env 'CLAMAV_NO_MILTERD=false'
 ```
 
 Further more, all of the configuration files that live in `/etc/clamav` can be
@@ -362,6 +378,10 @@ containers. If `clamd` is running inside the container, Docker will on
 occasion send a `ping` to `clamd` on the default port and wait for the pong
 from `clamd`. If `clamd` fails to respond, Docker will treat this as an error.
 The healthcheck results can be viewed with `docker inspect`.
+
+When the container starts up, the health-check also starts up. As loading the
+virus database can take some time, there is a delay configured in the
+`Dockerfile` to try and avoid this race condition.
 
 ## Performance
 

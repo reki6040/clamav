@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2019-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2019-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *
  *  Authors: Mickey Sola
  *
@@ -61,15 +61,15 @@
 pthread_t ddd_pid        = 0;
 pthread_t scan_queue_pid = 0;
 
-static void onas_handle_signals();
+static void onas_handle_signals(void);
 static int startup_checks(struct onas_context *ctx);
 static struct onas_context *g_ctx = NULL;
 
 static void onas_clamonacc_exit(int sig)
 {
-    logg("*Clamonacc: onas_clamonacc_exit(), signal %d\n", sig);
+    mprintf(LOGG_DEBUG, "Clamonacc: onas_clamonacc_exit(), signal %d\n", sig);
     if (sig == 11) {
-        logg("!Clamonacc: clamonacc has experienced a fatal error, if you continue to see this error, please run clamonacc with --verbose and report the issue and crash report to the developers\n");
+        mprintf(LOGG_ERROR, "Clamonacc: clamonacc has experienced a fatal error, if you continue to see this error, please run clamonacc with --verbose and report the issue and crash report to the developers\n");
     }
 
     if (g_ctx) {
@@ -79,21 +79,21 @@ static void onas_clamonacc_exit(int sig)
         g_ctx->fan_fd = 0;
     }
 
-    logg("*Clamonacc: attempting to stop ddd thread ... \n");
+    mprintf(LOGG_DEBUG, "Clamonacc: attempting to stop ddd thread ... \n");
     if (ddd_pid > 0) {
         pthread_cancel(ddd_pid);
         pthread_join(ddd_pid, NULL);
     }
     ddd_pid = 0;
 
-    logg("*Clamonacc: attempting to stop event consumer thread ...\n");
+    mprintf(LOGG_DEBUG, "Clamonacc: attempting to stop event consumer thread ...\n");
     if (scan_queue_pid > 0) {
         pthread_cancel(scan_queue_pid);
         pthread_join(scan_queue_pid, NULL);
     }
     scan_queue_pid = 0;
 
-    logg("Clamonacc: stopped\n");
+    mprintf(LOGG_INFO, "Clamonacc: stopped\n");
     onas_cleanup(g_ctx);
     pthread_exit(NULL);
 }
@@ -101,6 +101,7 @@ static void onas_clamonacc_exit(int sig)
 int main(int argc, char **argv)
 {
     const struct optstruct *opts;
+    const struct optstruct *opt;
     const struct optstruct *clamdopts;
     struct onas_context *ctx;
     int ret = 0;
@@ -108,17 +109,29 @@ int main(int argc, char **argv)
     /* Initialize context */
     ctx = onas_init_context();
     if (ctx == NULL) {
-        logg("!Clamonacc: can't initialize context\n");
+        mprintf(LOGG_ERROR, "Clamonacc: can't initialize context\n");
         return 2;
     }
 
     /* Parse out all our command line options */
     opts = optparse(NULL, argc, argv, 1, OPT_CLAMONACC, OPT_CLAMSCAN, NULL);
     if (opts == NULL) {
-        logg("!Clamonacc: can't parse command line options\n");
+        mprintf(LOGG_ERROR, "Clamonacc: can't parse command line options\n");
         return 2;
     }
     ctx->opts = opts;
+
+    /* initialize logger */
+
+    if ((opt = optget(opts, "log"))->enabled) {
+        logg_file = opt->strarg;
+        if (logg(LOGG_INFO, "--------------------------------------\n")) {
+            mprintf(LOGG_ERROR, "ClamClient: problem with internal logger\n");
+            return CL_EARG;
+        }
+    } else {
+        logg_file = NULL;
+    }
 
     if (optget(opts, "verbose")->enabled) {
         mprintf_verbose = 1;
@@ -128,7 +141,7 @@ int main(int argc, char **argv)
     /* And our config file options */
     clamdopts = optparse(optget(opts, "config-file")->strarg, 0, NULL, 1, OPT_CLAMD, 0, NULL);
     if (clamdopts == NULL) {
-        logg("!Clamonacc: can't parse clamd configuration file %s\n", optget(opts, "config-file")->strarg);
+        logg(LOGG_ERROR, "Clamonacc: can't parse clamd configuration file %s\n", optget(opts, "config-file")->strarg);
         optfree((struct optstruct *)opts);
         return 2;
     }
@@ -147,7 +160,7 @@ int main(int argc, char **argv)
     /* Daemonize if sanity checks are good to go */
     if (!optget(ctx->opts, "foreground")->enabled) {
         if (-1 == daemonize()) {
-            logg("!Clamonacc: could not daemonize\n");
+            logg(LOGG_ERROR, "Clamonacc: could not daemonize\n");
             return 2;
         }
     }
@@ -162,17 +175,17 @@ int main(int argc, char **argv)
             /* fall-through */
         case CL_BREAK:
             ret = 0;
-            logg("*Clamonacc: not setting up client\n");
+            logg(LOGG_DEBUG, "Clamonacc: not setting up client\n");
             goto done;
             break;
         case CL_EWRITE:
-            logg("!Clamonacc: can't set up fd passing, configuration issue -- please ensure your system \
+            logg(LOGG_ERROR, "Clamonacc: can't set up fd passing, configuration issue -- please ensure your system \
             is capable of fdpassing before specifying the fdpass option\n");
             ret = 2;
             goto done;
         case CL_EARG:
         default:
-            logg("!Clamonacc: can't setup client\n");
+            logg(LOGG_ERROR, "Clamonacc: can't setup client\n");
             ret = 2;
             goto done;
             break;
@@ -189,7 +202,7 @@ int main(int argc, char **argv)
         case CL_ECREAT:
         default:
             ret = 2;
-            logg("!Clamonacc: can't setup event consumer queue\n");
+            logg(LOGG_ERROR, "Clamonacc: can't setup event consumer queue\n");
             goto done;
             break;
     }
@@ -205,7 +218,7 @@ int main(int argc, char **argv)
             break;
         case CL_EARG:
         default:
-            mprintf("!Clamonacc: can't setup fanotify\n");
+            mprintf(LOGG_ERROR, "Clamonacc: can't setup fanotify\n");
             ret = 2;
             goto done;
             break;
@@ -222,14 +235,14 @@ int main(int argc, char **argv)
                 break;
             case CL_EARG:
             default:
-                mprintf("!Clamonacc: can't setup fanotify\n");
+                mprintf(LOGG_ERROR, "Clamonacc: can't setup fanotify\n");
                 ret = 2;
                 goto done;
                 break;
         }
     }
 #else
-    mprintf("!Clamonacc: currently, this application only runs on linux systems with fanotify enabled\n");
+    mprintf(LOGG_ERROR, "Clamonacc: currently, this application only runs on linux systems with fanotify enabled\n");
     goto done;
 #endif
 
@@ -237,7 +250,7 @@ int main(int argc, char **argv)
     g_ctx = ctx;
     onas_handle_signals();
 
-    logg("*Clamonacc: beginning event loops\n");
+    logg(LOGG_DEBUG, "Clamonacc: beginning event loops\n");
     /*  Kick off event loop(s) */
     ret = onas_start_eloop(&ctx);
 
@@ -247,7 +260,7 @@ done:
     exit(ret);
 }
 
-static void onas_handle_signals()
+static void onas_handle_signals(void)
 {
     sigset_t sigset;
     struct sigaction act;
@@ -257,7 +270,7 @@ static void onas_handle_signals()
     sigdelset(&sigset, SIGUSR1);
     sigdelset(&sigset, SIGUSR2);
     /* The behavior of a process is undefined after it ignores a
-	 * SIGFPE, SIGILL, SIGSEGV, or SIGBUS signal */
+     * SIGFPE, SIGILL, SIGSEGV, or SIGBUS signal */
     sigdelset(&sigset, SIGFPE);
     sigdelset(&sigset, SIGILL);
     sigdelset(&sigset, SIGSEGV);
@@ -295,8 +308,8 @@ cl_error_t onas_check_client_connection(struct onas_context **ctx)
     /* 0 local, non-zero remote, errno set on error */
     (*ctx)->isremote = onas_check_remote(ctx, &err);
     if (CL_SUCCESS == err) {
-        logg("*Clamonacc: ");
-        (*ctx)->isremote ? logg("*daemon is remote\n") : logg("*daemon is local\n");
+        logg(LOGG_DEBUG, "Clamonacc: ");
+        (*ctx)->isremote ? logg(LOGG_DEBUG, "daemon is remote\n") : logg(LOGG_DEBUG, "daemon is local\n");
     }
     return err ? CL_EACCES : CL_SUCCESS;
 }
@@ -306,7 +319,7 @@ int onas_start_eloop(struct onas_context **ctx)
     int ret = 0;
 
     if (!ctx || !*ctx) {
-        mprintf("!Clamonacc: unable to start clamonacc. (bad context)\n");
+        mprintf(LOGG_ERROR, "Clamonacc: unable to start clamonacc. (bad context)\n");
         return CL_EARG;
     }
 
@@ -338,9 +351,9 @@ static int startup_checks(struct onas_context *ctx)
     ctx->fan_fd = fanotify_init(FAN_CLASS_CONTENT | FAN_UNLIMITED_QUEUE | FAN_UNLIMITED_MARKS, O_RDONLY);
 #endif
     if (ctx->fan_fd < 0) {
-        logg("!Clamonacc: fanotify_init failed: %s\n", cli_strerror(errno, faerr, sizeof(faerr)));
+        logg(LOGG_ERROR, "Clamonacc: fanotify_init failed: %s\n", cli_strerror(errno, faerr, sizeof(faerr)));
         if (errno == EPERM) {
-            logg("!Clamonacc: clamonacc must have elevated permissions ... exiting ...\n");
+            logg(LOGG_ERROR, "Clamonacc: clamonacc must have elevated permissions ... exiting ...\n");
         }
         ret = 2;
         goto done;
@@ -349,7 +362,7 @@ static int startup_checks(struct onas_context *ctx)
 
 #if ((LIBCURL_VERSION_MAJOR < 7) || (LIBCURL_VERSION_MAJOR == 7 && LIBCURL_VERSION_MINOR < 40))
     if (optget(ctx->opts, "fdpass")->enabled || !optget(ctx->clamdopts, "TCPSocket")->enabled || !optget(ctx->clamdopts, "TCPAddr")->enabled) {
-        logg("!Clamonacc: Version of curl is too low to use fdpassing. Please use tcp socket streaming instead\n.");
+        logg(LOGG_ERROR, "Clamonacc: Version of curl is too low to use fdpassing. Please use tcp socket streaming instead\n.");
         ret = 2;
         goto done;
     }
@@ -399,14 +412,14 @@ static int startup_checks(struct onas_context *ctx)
 
     if (0 == onas_check_remote(&ctx, &err)) {
         if (CL_SUCCESS != err) {
-            logg("!Clamonacc: daemon is local, but a connection could not be established\n");
+            logg(LOGG_ERROR, "Clamonacc: daemon is local, but a connection could not be established\n");
             ret = 2;
             goto done;
         }
 
         if (!optget(ctx->clamdopts, "OnAccessExcludeUID")->enabled &&
             !optget(ctx->clamdopts, "OnAccessExcludeUname")->enabled && !optget(ctx->clamdopts, "OnAccessExcludeRootUID")->enabled) {
-            logg("!Clamonacc: at least one of OnAccessExcludeUID, OnAccessExcludeUname, or OnAccessExcludeRootUID must be specified ... it is recommended you exclude the clamd instance UID or uname to prevent infinite event scanning loops\n");
+            logg(LOGG_ERROR, "Clamonacc: at least one of OnAccessExcludeUID, OnAccessExcludeUname, or OnAccessExcludeRootUID must be specified ... it is recommended you exclude the clamd instance UID or uname to prevent infinite event scanning loops\n");
             ret = 2;
             goto done;
         }
@@ -420,30 +433,30 @@ void help(void)
 {
     mprintf_stdout = 1;
 
-    mprintf("\n");
-    mprintf("           ClamAV: On Access Scanning Application and Client %s\n", get_version());
-    mprintf("           By The ClamAV Team: https://www.clamav.net/about.html#credits\n");
-    mprintf("           (C) 2021 Cisco Systems, Inc.\n");
-    mprintf("\n");
-    mprintf("    clamonacc [options] [file/directory/-]\n");
-    mprintf("\n");
-    mprintf("    --help                 -h          Show this help\n");
-    mprintf("    --version              -V          Print version number and exit\n");
-    mprintf("    --verbose              -v          Be verbose\n");
-    mprintf("    --log=FILE             -l FILE     Save scanning output to FILE\n");
-    mprintf("    --foreground           -F          Output to foreground and do not daemonize\n");
-    mprintf("    --watch-list=FILE      -W FILE     Watch directories from FILE\n");
-    mprintf("    --exclude-list=FILE    -e FILE     Exclude directories from FILE\n");
-    mprintf("    --ping                 -p A[:I]    Ping clamd up to [A] times at optional interval [I] until it responds.\n");
-    mprintf("    --wait                 -w          Wait up to 30 seconds for clamd to start. Optionally use alongside --ping to set attempts [A] and interval [I] to check clamd.\n");
-    mprintf("    --remove                           Remove infected files. Be careful!\n");
-    mprintf("    --move=DIRECTORY                   Move infected files into DIRECTORY\n");
-    mprintf("    --copy=DIRECTORY                   Copy infected files into DIRECTORY\n");
-    mprintf("    --config-file=FILE     -c FILE     Read configuration from FILE\n");
-    mprintf("    --allmatch             -z          Continue scanning within file after finding a match.\n");
-    mprintf("    --fdpass                           Pass filedescriptor to clamd (useful if clamd is running as a different user)\n");
-    mprintf("    --stream                           Force streaming files to clamd (for debugging and unit testing)\n");
-    mprintf("\n");
+    mprintf(LOGG_INFO, "\n");
+    mprintf(LOGG_INFO, "           ClamAV: On Access Scanning Application and Client %s\n", get_version());
+    mprintf(LOGG_INFO, "           By The ClamAV Team: https://www.clamav.net/about.html#credits\n");
+    mprintf(LOGG_INFO, "           (C) 2023 Cisco Systems, Inc.\n");
+    mprintf(LOGG_INFO, "\n");
+    mprintf(LOGG_INFO, "    clamonacc [options] [file/directory/-]\n");
+    mprintf(LOGG_INFO, "\n");
+    mprintf(LOGG_INFO, "    --help                 -h          Show this help\n");
+    mprintf(LOGG_INFO, "    --version              -V          Print version number and exit\n");
+    mprintf(LOGG_INFO, "    --verbose              -v          Be verbose\n");
+    mprintf(LOGG_INFO, "    --log=FILE             -l FILE     Save scanning output to FILE\n");
+    mprintf(LOGG_INFO, "    --foreground           -F          Output to foreground and do not daemonize\n");
+    mprintf(LOGG_INFO, "    --watch-list=FILE      -W FILE     Watch directories from FILE\n");
+    mprintf(LOGG_INFO, "    --exclude-list=FILE    -e FILE     Exclude directories from FILE\n");
+    mprintf(LOGG_INFO, "    --ping                 -p A[:I]    Ping clamd up to [A] times at optional interval [I] until it responds.\n");
+    mprintf(LOGG_INFO, "    --wait                 -w          Wait up to 30 seconds for clamd to start. Optionally use alongside --ping to set attempts [A] and interval [I] to check clamd.\n");
+    mprintf(LOGG_INFO, "    --remove                           Remove infected files. Be careful!\n");
+    mprintf(LOGG_INFO, "    --move=DIRECTORY                   Move infected files into DIRECTORY\n");
+    mprintf(LOGG_INFO, "    --copy=DIRECTORY                   Copy infected files into DIRECTORY\n");
+    mprintf(LOGG_INFO, "    --config-file=FILE     -c FILE     Read configuration from FILE\n");
+    mprintf(LOGG_INFO, "    --allmatch             -z          Continue scanning within file after finding a match.\n");
+    mprintf(LOGG_INFO, "    --fdpass                           Pass filedescriptor to clamd (useful if clamd is running as a different user)\n");
+    mprintf(LOGG_INFO, "    --stream                           Force streaming files to clamd (for debugging and unit testing)\n");
+    mprintf(LOGG_INFO, "\n");
 
     exit(0);
 }

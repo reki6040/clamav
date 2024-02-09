@@ -46,7 +46,8 @@ Example
 # Default: no
 #LogRotate yes
 
-# This option allows you to save the process identifier of the daemon
+# Write the daemon's pid to the specified file.
+# You must run freshclam with --daemon (-d) for freshclam to run as a daemon.
 # Default: disabled
 #PidFile "C:\Program Files\ClamAV\freshclam.pid"
 
@@ -172,9 +173,9 @@ DatabaseMirror database.clamav.net
 # Default: 30
 #ConnectTimeout 60
 
-# Maximum time in seconds for each download operation. 0 means no timeout.
-# Default: 0
-#ReceiveTimeout 1800
+# Timeout in seconds when reading from database server. 0 means no timeout.
+# Default: 60
+#ReceiveTimeout 300
 
 # With this option enabled, freshclam will attempt to load new databases into
 # memory to make sure they are properly handled by libclamav before replacing

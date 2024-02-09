@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2008-2013 Sourcefire, Inc.
  *
  *  Authors: Tomasz Kojm
@@ -35,6 +35,7 @@
 #include "matcher-pcre.h"
 #include "others.h"
 #include "default.h"
+#include "clamav_rust.h"
 
 #include "checks.h"
 
@@ -156,22 +157,35 @@ static const struct pcre_testdata_s {
 static cli_ctx ctx;
 static struct cl_scan_options options;
 
-static fmap_t *thefmap     = NULL;
+static fmap_t thefmap;
 static const char *virname = NULL;
 static void setup(void)
 {
     struct cli_matcher *root;
     virname = NULL;
-    thefmap = NULL;
+
+    memset(&thefmap, 0, sizeof(thefmap));
 
     memset(&ctx, 0, sizeof(ctx));
     memset(&options, 0, sizeof(struct cl_scan_options));
     ctx.options = &options;
 
-    ctx.virname = &virname;
-    ctx.fmap    = &thefmap;
-    ctx.engine  = cl_engine_new();
+    ctx.evidence = evidence_new();
+
+    ctx.engine = cl_engine_new();
     ck_assert_msg(!!ctx.engine, "cl_engine_new() failed");
+
+    ctx.dconf = ctx.engine->dconf;
+
+    ctx.recursion_stack_size = ctx.engine->max_recursion_level;
+    ctx.recursion_stack      = cli_calloc(sizeof(recursion_level_t), ctx.recursion_stack_size);
+    ck_assert_msg(!!ctx.recursion_stack, "cli_calloc() for recursion_stack failed");
+
+    // ctx was memset, so recursion_level starts at 0.
+    ctx.recursion_stack[ctx.recursion_level].fmap = &thefmap;
+
+    ctx.fmap = ctx.recursion_stack[ctx.recursion_level].fmap;
+
     root = (struct cli_matcher *)MPOOL_CALLOC(ctx.engine->mempool, 1, sizeof(struct cli_matcher));
     ck_assert_msg(root != NULL, "root == NULL");
 #ifdef USE_MPOOL
@@ -184,6 +198,8 @@ static void setup(void)
 static void teardown(void)
 {
     cl_engine_free((struct cl_engine *)ctx.engine);
+    free(ctx.recursion_stack);
+    evidence_free(ctx.evidence);
 }
 
 START_TEST(test_ac_scanbuff)
@@ -204,8 +220,8 @@ START_TEST(test_ac_scanbuff)
     ck_assert_msg(ret == CL_SUCCESS, "cli_ac_init() failed");
 
     for (i = 0; ac_testdata[i].data; i++) {
-        ret = cli_parse_add(root, ac_testdata[i].virname, ac_testdata[i].hexsig, 0, 0, 0, "*", 0, NULL, 0);
-        ck_assert_msg(ret == CL_SUCCESS, "cli_parse_add() failed");
+        ret = cli_add_content_match_pattern(root, ac_testdata[i].virname, ac_testdata[i].hexsig, 0, 0, 0, "*", NULL, 0);
+        ck_assert_msg(ret == CL_SUCCESS, "cli_add_content_match_pattern failed");
     }
 
     ret = cli_ac_buildtrie(root);
@@ -247,8 +263,8 @@ START_TEST(test_ac_scanbuff_allscan)
     ck_assert_msg(ret == CL_SUCCESS, "cli_ac_init() failed");
 
     for (i = 0; ac_testdata[i].data; i++) {
-        ret = cli_parse_add(root, ac_testdata[i].virname, ac_testdata[i].hexsig, 0, 0, 0, "*", 0, NULL, 0);
-        ck_assert_msg(ret == CL_SUCCESS, "cli_parse_add() failed");
+        ret = cli_add_content_match_pattern(root, ac_testdata[i].virname, ac_testdata[i].hexsig, 0, 0, 0, "*", NULL, 0);
+        ck_assert_msg(ret == CL_SUCCESS, "cli_add_content_match_pattern failed");
     }
 
     ret = cli_ac_buildtrie(root);
@@ -264,10 +280,17 @@ START_TEST(test_ac_scanbuff_allscan)
         ck_assert_msg(!strncmp(virname, ac_testdata[i].virname, strlen(ac_testdata[i].virname)), "Dataset %u matched with %s", i, virname);
 
         ret = cli_scan_buff((const unsigned char *)ac_testdata[i].data, strlen(ac_testdata[i].data), 0, &ctx, 0, NULL);
-        ck_assert_msg(ret == CL_VIRUS, "cli_scan_buff() failed for %s", ac_testdata[i].virname);
+        ck_assert_msg(ret == CL_SUCCESS, "cli_scan_buff() failed for %s", ac_testdata[i].virname);
+
+        // phishingScan() doesn't check the number of alerts. When using CL_SCAN_GENERAL_ALLMATCHES
+        // or if using `CL_SCAN_GENERAL_HEURISTIC_PRECEDENCE` and `cli_append_potentially_unwanted()`
+        // we need to count the number of alerts manually to determine the verdict.
+        ck_assert_msg(0 < evidence_num_alerts(ctx.evidence), "cli_scan_buff() failed for %s", ac_testdata[i].virname);
         ck_assert_msg(!strncmp(virname, ac_testdata[i].virname, strlen(ac_testdata[i].virname)), "Dataset %u matched with %s", i, virname);
-        if (ctx.num_viruses)
-            ctx.num_viruses = 0;
+        if (evidence_num_alerts(ctx.evidence) > 0) {
+            evidence_free(ctx.evidence);
+            ctx.evidence = evidence_new();
+        }
     }
 
     cli_ac_freedata(&mdata);
@@ -292,7 +315,7 @@ START_TEST(test_ac_scanbuff_ex)
     ck_assert_msg(ret == CL_SUCCESS, "[ac_ex] cli_ac_init() failed");
 
     for (i = 0; ac_sigopts_testdata[i].data; i++) {
-        ret = cli_sigopts_handler(root, ac_sigopts_testdata[i].virname, ac_sigopts_testdata[i].hexsig, ac_sigopts_testdata[i].sigopts, 0, 0, ac_sigopts_testdata[i].offset, 0, NULL, 0);
+        ret = cli_sigopts_handler(root, ac_sigopts_testdata[i].virname, ac_sigopts_testdata[i].hexsig, ac_sigopts_testdata[i].sigopts, 0, 0, ac_sigopts_testdata[i].offset, NULL, 0);
         ck_assert_msg(ret == CL_SUCCESS, "[ac_ex] cli_sigopts_handler() failed");
     }
 
@@ -335,7 +358,7 @@ START_TEST(test_ac_scanbuff_allscan_ex)
     ck_assert_msg(ret == CL_SUCCESS, "[ac_ex] cli_ac_init() failed");
 
     for (i = 0; ac_sigopts_testdata[i].data; i++) {
-        ret = cli_sigopts_handler(root, ac_sigopts_testdata[i].virname, ac_sigopts_testdata[i].hexsig, ac_sigopts_testdata[i].sigopts, 0, 0, ac_sigopts_testdata[i].offset, 0, NULL, 0);
+        ret = cli_sigopts_handler(root, ac_sigopts_testdata[i].virname, ac_sigopts_testdata[i].hexsig, ac_sigopts_testdata[i].sigopts, 0, 0, ac_sigopts_testdata[i].offset, NULL, 0);
         ck_assert_msg(ret == CL_SUCCESS, "[ac_ex] cli_sigopts_handler() failed");
     }
 
@@ -347,15 +370,28 @@ START_TEST(test_ac_scanbuff_allscan_ex)
 
     ctx.options->general |= CL_SCAN_GENERAL_ALLMATCHES; /* enable all-match */
     for (i = 0; ac_sigopts_testdata[i].data; i++) {
+        cl_error_t verdict = CL_CLEAN;
+
         ret = cli_ac_scanbuff((const unsigned char *)ac_sigopts_testdata[i].data, ac_sigopts_testdata[i].dlength, &virname, NULL, NULL, root, &mdata, 0, 0, NULL, AC_SCAN_VIR, NULL);
         ck_assert_msg(ret == ac_sigopts_testdata[i].expected_result, "[ac_ex] cli_ac_scanbuff() failed for %s (%d != %d)", ac_sigopts_testdata[i].virname, ret, ac_sigopts_testdata[i].expected_result);
         if (ac_sigopts_testdata[i].expected_result == CL_VIRUS)
             ck_assert_msg(!strncmp(virname, ac_sigopts_testdata[i].virname, strlen(ac_sigopts_testdata[i].virname)), "[ac_ex] Dataset %u matched with %s", i, virname);
 
         ret = cli_scan_buff((const unsigned char *)ac_sigopts_testdata[i].data, ac_sigopts_testdata[i].dlength, 0, &ctx, 0, NULL);
-        ck_assert_msg(ret == ac_sigopts_testdata[i].expected_result, "[ac_ex] cli_ac_scanbuff() failed for %s (%d != %d)", ac_sigopts_testdata[i].virname, ret, ac_sigopts_testdata[i].expected_result);
-        if (ctx.num_viruses)
-            ctx.num_viruses = 0;
+        ck_assert_msg(ret == CL_SUCCESS, "[ac_ex] cli_ac_scanbuff() failed for %s (%d != %d)", ac_sigopts_testdata[i].virname, ret, ac_sigopts_testdata[i].expected_result);
+
+        // phishingScan() doesn't check the number of alerts. When using CL_SCAN_GENERAL_ALLMATCHES
+        // or if using `CL_SCAN_GENERAL_HEURISTIC_PRECEDENCE` and `cli_append_potentially_unwanted()`
+        // we need to count the number of alerts manually to determine the verdict.
+        if (0 < evidence_num_alerts(ctx.evidence)) {
+            verdict = CL_VIRUS;
+        }
+
+        ck_assert_msg(verdict == ac_sigopts_testdata[i].expected_result, "[ac_ex] cli_ac_scanbuff() failed for %s (%d != %d)", ac_sigopts_testdata[i].virname, verdict, ac_sigopts_testdata[i].expected_result);
+        if (evidence_num_alerts(ctx.evidence) > 0) {
+            evidence_free(ctx.evidence);
+            ctx.evidence = evidence_new();
+        }
     }
 
     cli_ac_freedata(&mdata);
@@ -377,12 +413,12 @@ START_TEST(test_bm_scanbuff)
     ret = cli_bm_init(root);
     ck_assert_msg(ret == CL_SUCCESS, "cli_bm_init() failed");
 
-    ret = cli_parse_add(root, "Sig1", "deadbabe", 0, 0, 0, "*", 0, NULL, 0);
-    ck_assert_msg(ret == CL_SUCCESS, "cli_parse_add() failed");
-    ret = cli_parse_add(root, "Sig2", "deadbeef", 0, 0, 0, "*", 0, NULL, 0);
-    ck_assert_msg(ret == CL_SUCCESS, "cli_parse_add() failed");
-    ret = cli_parse_add(root, "Sig3", "babedead", 0, 0, 0, "*", 0, NULL, 0);
-    ck_assert_msg(ret == CL_SUCCESS, "cli_parse_add() failed");
+    ret = cli_add_content_match_pattern(root, "Sig1", "deadbabe", 0, 0, 0, "*", NULL, 0);
+    ck_assert_msg(ret == CL_SUCCESS, "cli_add_content_match_pattern failed");
+    ret = cli_add_content_match_pattern(root, "Sig2", "deadbeef", 0, 0, 0, "*", NULL, 0);
+    ck_assert_msg(ret == CL_SUCCESS, "cli_add_content_match_pattern failed");
+    ret = cli_add_content_match_pattern(root, "Sig3", "babedead", 0, 0, 0, "*", NULL, 0);
+    ck_assert_msg(ret == CL_SUCCESS, "cli_add_content_match_pattern failed");
 
     ctx.options->general &= ~CL_SCAN_GENERAL_ALLMATCHES; /* make sure all-match is disabled */
     ret = cli_bm_scanbuff((const unsigned char *)"blah\xde\xad\xbe\xef", 12, &virname, NULL, root, 0, NULL, NULL, NULL);
@@ -406,12 +442,12 @@ START_TEST(test_bm_scanbuff_allscan)
     ret = cli_bm_init(root);
     ck_assert_msg(ret == CL_SUCCESS, "cli_bm_init() failed");
 
-    ret = cli_parse_add(root, "Sig1", "deadbabe", 0, 0, 0, "*", 0, NULL, 0);
-    ck_assert_msg(ret == CL_SUCCESS, "cli_parse_add() failed");
-    ret = cli_parse_add(root, "Sig2", "deadbeef", 0, 0, 0, "*", 0, NULL, 0);
-    ck_assert_msg(ret == CL_SUCCESS, "cli_parse_add() failed");
-    ret = cli_parse_add(root, "Sig3", "babedead", 0, 0, 0, "*", 0, NULL, 0);
-    ck_assert_msg(ret == CL_SUCCESS, "cli_parse_add() failed");
+    ret = cli_add_content_match_pattern(root, "Sig1", "deadbabe", 0, 0, 0, "*", NULL, 0);
+    ck_assert_msg(ret == CL_SUCCESS, "cli_add_content_match_pattern failed");
+    ret = cli_add_content_match_pattern(root, "Sig2", "deadbeef", 0, 0, 0, "*", NULL, 0);
+    ck_assert_msg(ret == CL_SUCCESS, "cli_add_content_match_pattern failed");
+    ret = cli_add_content_match_pattern(root, "Sig3", "babedead", 0, 0, 0, "*", NULL, 0);
+    ck_assert_msg(ret == CL_SUCCESS, "cli_add_content_match_pattern failed");
 
     ctx.options->general |= CL_SCAN_GENERAL_ALLMATCHES; /* enable all-match */
     ret = cli_bm_scanbuff((const unsigned char *)"blah\xde\xad\xbe\xef", 12, &virname, NULL, root, 0, NULL, NULL, NULL);
@@ -448,8 +484,8 @@ START_TEST(test_pcre_scanbuff)
         strncat(hexsig, PCRE_BYPASS, hexlen);
         strncat(hexsig, pcre_testdata[i].hexsig, hexlen);
 
-        ret = cli_parse_add(root, pcre_testdata[i].virname, hexsig, pcre_testdata[i].sigopts, 0, 0, pcre_testdata[i].offset, 0, NULL, 0);
-        ck_assert_msg(ret == CL_SUCCESS, "[pcre] cli_parse_add() failed");
+        ret = readdb_parse_ldb_subsignature(root, pcre_testdata[i].virname, hexsig, pcre_testdata[i].offset, NULL, 0, 0, 0, NULL);
+        ck_assert_msg(ret == CL_SUCCESS, "[pcre] readdb_parse_ldb_subsignature failed");
         free(hexsig);
     }
 
@@ -465,8 +501,8 @@ START_TEST(test_pcre_scanbuff)
     for (i = 0; pcre_testdata[i].data; i++) {
         ret = cli_pcre_scanbuf((const unsigned char *)pcre_testdata[i].data, strlen(pcre_testdata[i].data), &virname, NULL, root, NULL, NULL, NULL);
         ck_assert_msg(ret == pcre_testdata[i].expected_result, "[pcre] cli_pcre_scanbuff() failed for %s (%d != %d)", pcre_testdata[i].virname, ret, pcre_testdata[i].expected_result);
-        if (pcre_testdata[i].expected_result == CL_VIRUS)
-            ck_assert_msg(!strncmp(virname, pcre_testdata[i].virname, strlen(pcre_testdata[i].virname)), "[pcre] Dataset %u matched with %s", i, virname);
+
+        // we cannot check if the virname matches because we didn't load a whole logical signature, and virnames are stored in the lsig structure, now.
 
         ret = cli_scan_buff((const unsigned char *)pcre_testdata[i].data, strlen(pcre_testdata[i].data), 0, &ctx, 0, NULL);
         ck_assert_msg(ret == pcre_testdata[i].expected_result, "[pcre] cli_scan_buff() failed for %s", pcre_testdata[i].virname);
@@ -502,8 +538,8 @@ START_TEST(test_pcre_scanbuff_allscan)
         strncat(hexsig, PCRE_BYPASS, hexlen);
         strncat(hexsig, pcre_testdata[i].hexsig, hexlen);
 
-        ret = cli_parse_add(root, pcre_testdata[i].virname, hexsig, 0, 0, 0, pcre_testdata[i].offset, 0, NULL, 0);
-        ck_assert_msg(ret == CL_SUCCESS, "[pcre] cli_parse_add() failed");
+        ret = readdb_parse_ldb_subsignature(root, pcre_testdata[i].virname, hexsig, pcre_testdata[i].offset, NULL, 0, 0, 1, NULL);
+        ck_assert_msg(ret == CL_SUCCESS, "[pcre] readdb_parse_ldb_subsignature failed");
         free(hexsig);
     }
 
@@ -517,16 +553,28 @@ START_TEST(test_pcre_scanbuff_allscan)
 
     ctx.options->general |= CL_SCAN_GENERAL_ALLMATCHES; /* enable all-match */
     for (i = 0; pcre_testdata[i].data; i++) {
+        cl_error_t verdict = CL_CLEAN;
+
         ret = cli_pcre_scanbuf((const unsigned char *)pcre_testdata[i].data, strlen(pcre_testdata[i].data), &virname, NULL, root, NULL, NULL, NULL);
         ck_assert_msg(ret == pcre_testdata[i].expected_result, "[pcre] cli_pcre_scanbuff() failed for %s (%d != %d)", pcre_testdata[i].virname, ret, pcre_testdata[i].expected_result);
-        if (pcre_testdata[i].expected_result == CL_VIRUS)
-            ck_assert_msg(!strncmp(virname, pcre_testdata[i].virname, strlen(pcre_testdata[i].virname)), "[pcre] Dataset %u matched with %s", i, virname);
+
+        // we cannot check if the virname matches because we didn't load a whole logical signature, and virnames are stored in the lsig structure, now.
 
         ret = cli_scan_buff((const unsigned char *)pcre_testdata[i].data, strlen(pcre_testdata[i].data), 0, &ctx, 0, NULL);
-        ck_assert_msg(ret == pcre_testdata[i].expected_result, "[pcre] cli_scan_buff() failed for %s", pcre_testdata[i].virname);
+
+        // cli_scan_buff() doesn't check the number of alerts. When using CL_SCAN_GENERAL_ALLMATCHES
+        // or if using `CL_SCAN_GENERAL_HEURISTIC_PRECEDENCE` and `cli_append_potentially_unwanted()`
+        // we need to count the number of alerts manually to determine the verdict.
+        if (0 < evidence_num_alerts(ctx.evidence)) {
+            verdict = CL_VIRUS;
+        }
+
+        ck_assert_msg(verdict == pcre_testdata[i].expected_result, "[pcre] cli_scan_buff() failed for %s", pcre_testdata[i].virname);
         /* num_virus field add to test case struct */
-        if (ctx.num_viruses)
-            ctx.num_viruses = 0;
+        if (evidence_num_alerts(ctx.evidence) > 0) {
+            evidence_free(ctx.evidence);
+            ctx.evidence = evidence_new();
+        }
     }
 
     cli_ac_freedata(&mdata);

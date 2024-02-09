@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2007-2013 Sourcefire, Inc.
  *
  *  Authors: Alberto Wu
@@ -70,7 +70,7 @@ cl_error_t cli_scansis(cli_ctx *ctx)
     char *tmpd;
     unsigned int i;
     uint32_t uid[4];
-    fmap_t *map = *ctx->fmap;
+    fmap_t *map = ctx->fmap;
 
     cli_dbgmsg("in scansis()\n");
 
@@ -265,7 +265,7 @@ static cl_error_t real_scansis(cli_ctx *ctx, const char *tmpd)
     uint32_t sleft = 0, smax = 0;
     uint8_t compd, buff[BUFSIZ];
     size_t pos;
-    fmap_t *map             = *ctx->fmap;
+    fmap_t *map             = ctx->fmap;
     uint32_t *ptrs          = NULL;
     void *decomp            = NULL;
     int fd                  = -1;
@@ -277,7 +277,7 @@ static cl_error_t real_scansis(cli_ctx *ctx, const char *tmpd)
         goto done;
     }
     /*  cli_dbgmsg("SIS HEADER INFO: \nFile checksum: %x\nLangs: %d\nFiles: %d\nDeps: %d\nUsed langs: %d\nInstalled files: %d\nDest drive: %d\nCapabilities: %d\nSIS Version: %d\nFlags: %x\nType: %d\nVersion: %d.%d.%d\nLangs@: %x\nFiles@: %x\nDeps@: %x\nCerts@: %x\nName@: %x\nSig@: %x\nCaps@: %x\nUspace: %d\nNspace: %d\n\n", sis.filesum, sis.langs, sis.files, sis.deps, sis.ulangs, sis.instfiles, sis.drive, sis.caps, sis.version, sis.flags, sis.type, sis.verhi, sis.verlo, sis.versub, sis.plangs, sis.pfiles, sis.pdeps, sis.pcerts, sis.pnames, sis.psig, sis.pcaps, sis.uspace, sis.nspace);
-   */
+     */
 
 #if WORDS_BIGENDIAN != 0
     sis.langs  = EC16(sis.langs);
@@ -517,8 +517,8 @@ static cl_error_t real_scansis(cli_ctx *ctx, const char *tmpd)
 
                         FREE(decomp);
 
-                        if (cli_magic_scan_desc(fd, ofn, ctx, original_filepath) == CL_VIRUS) {
-                            status = CL_VIRUS;
+                        status = cli_magic_scan_desc(fd, ofn, ctx, original_filepath, LAYER_ATTRIBUTES_NONE);
+                        if (CL_SUCCESS != status) {
                             goto done;
                         }
 
@@ -646,10 +646,10 @@ struct SISTREAM {
 static inline int getd(struct SISTREAM *s, uint32_t *v)
 {
     if (s->sleft < 4) {
-        int nread;
+        size_t nread;
         memcpy(s->buff, s->buff + s->smax - s->sleft, s->sleft);
         nread = fmap_readn(s->map, &s->buff[s->sleft], s->pos, BUFSIZ - s->sleft);
-        if ((nread < 0) || ((s->sleft = s->smax = nread + s->sleft) < 4)) {
+        if ((nread == (size_t)-1) || ((s->sleft = s->smax = nread + s->sleft) < 4)) {
             return 1;
         }
         s->pos += nread;
@@ -713,12 +713,14 @@ static inline void seeknext(struct SISTREAM *s)
 
 static cl_error_t real_scansis9x(cli_ctx *ctx, const char *tmpd)
 {
+    cl_error_t ret;
+
     struct SISTREAM stream;
     struct SISTREAM *s = &stream;
     uint32_t field, optst[] = {T_CONTROLLERCHECKSUM, T_DATACHECKSUM, T_COMPRESSED};
     unsigned int i;
 
-    s->map   = *ctx->fmap;
+    s->map   = ctx->fmap;
     s->pos   = 0;
     s->smax  = 0;
     s->sleft = 0;
@@ -840,9 +842,10 @@ static cl_error_t real_scansis9x(cli_ctx *ctx, const char *tmpd)
                                 break;
                             }
                             free(dst);
-                            if (cli_magic_scan_desc(fd, tempf, ctx, NULL) == CL_VIRUS) {
+                            ret = cli_magic_scan_desc(fd, tempf, ctx, NULL, LAYER_ATTRIBUTES_NONE);
+                            if (CL_SUCCESS != ret) {
                                 close(fd);
-                                return CL_VIRUS;
+                                return ret;
                             }
                             close(fd);
                             break;

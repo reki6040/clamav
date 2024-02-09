@@ -21,9 +21,13 @@ env:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2019
 
     steps:
+      - name: Die, link!!!!!
+        run: rm /usr/bin/link.exe
+        shell: bash
+
       - uses: actions/checkout@v1
 
       - name: Install Build Tools
@@ -34,12 +38,12 @@ jobs:
       - name: Install pytest for easier to read test results
         run: python3 -m pip install pytest
 
-      - uses: lukka/get-cmake@latest
+      - uses: lukka/get-cmake@v3.21.2
 
       # Restore from cache the previously built ports. If cache-miss, download, build vcpkg ports.
       - name: Restore vcpkg ports from cache or install vcpkg
         # Download and build vcpkg, without installing any port. If content is cached already, it is a no-op.
-        uses: lukka/run-vcpkg@v5
+        uses: lukka/run-vcpkg@v7.4
         id: runvcpkg
         with:
           vcpkgArguments: "curl[openssl] json-c libxml2 pcre2 check pthreads zlib pdcurses bzip2"
@@ -60,7 +64,7 @@ jobs:
         run: cmake -E make_directory ${{runner.workspace}}/build
 
       - name: Run CMake+Ninja with triplet (cmd)
-        uses: lukka/run-cmake@main
+        uses: lukka/run-cmake@v3.4
         id: runcmake_cmd
         with:
           cmakeGenerator: "Ninja" # Visual Studio 15 2017
@@ -97,7 +101,7 @@ jobs:
       - name: Install pytest for easier to read test results
         run: python3 -m pip install pytest
 
-      - uses: lukka/get-cmake@latest
+      - uses: lukka/get-cmake@v3.21.2
 
       - name: Create Build Directory
         shell: bash
@@ -151,7 +155,7 @@ jobs:
       - name: Install pytest for easier to read test results
         run: python3 -m pip install pytest
 
-      - uses: lukka/get-cmake@latest
+      - uses: lukka/get-cmake@v3.21.2
 
       - name: Create Build Directory
         shell: bash

@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2007-2013 Sourcefire, Inc.
  *  Copyright (C) 2002-2007 Tomasz Kojm <tkojm@clamav.net>
  *
@@ -48,7 +48,7 @@ typedef struct fc_config_ {
     uint64_t maxLogSize;             /**< Max size of logfile, if enabled. */
     uint32_t maxAttempts;            /**< Max # of download attempts. Must be > 0 */
     uint32_t connectTimeout;         /**< CURLOPT_CONNECTTIMEOUT, Timeout for the. connection phase (seconds). */
-    uint32_t requestTimeout;         /**< CURLOPT_TIMEOUT, Timeout for libcurl transfer operation (seconds). */
+    uint32_t requestTimeout;         /**< CURLOPT_LOW_SPEED_TIME, Timeout for libcurl transfer operation (seconds). */
     uint32_t bCompressLocalDatabase; /**< If set, will apply gz compression to CLD databases. */
     const char *logFile;             /**< (optional) Filepath to use for log output, if desired. */
     const char *logFacility;         /**< (optional) System logging facility (I.e. "syslog"), if desired. */

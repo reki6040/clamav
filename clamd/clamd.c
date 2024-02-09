@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2007-2013 Sourcefire, Inc.
  *
  *  Authors: Tomasz Kojm
@@ -92,7 +92,7 @@ static void help(void)
     printf("\n");
     printf("                      Clam AntiVirus: Daemon %s\n", get_version());
     printf("           By The ClamAV Team: https://www.clamav.net/about.html#credits\n");
-    printf("           (C) 2021 Cisco Systems, Inc.\n");
+    printf("           (C) 2023 Cisco Systems, Inc.\n");
     printf("\n");
     printf("    clamd [options]\n");
     printf("\n");
@@ -106,6 +106,9 @@ static void help(void)
     printf("    --debug                                 Enable debug mode\n");
     printf("    --log=FILE               -l FILE        Log into FILE\n");
     printf("    --config-file=FILE       -c FILE        Read configuration from FILE\n");
+    printf("    --fail-if-cvd-older-than=days           Return with a nonzero error code if virus database outdated\n");
+    printf("    --datadir=DIRECTORY                     Load signatures from DIRECTORY\n");
+    printf("    --pid=FILE               -p FILE        Write the daemon's pid to FILE\n");
     printf("\n");
     printf("Pass in - as the filename for stdin.\n");
     printf("\n");
@@ -167,12 +170,12 @@ int main(int argc, char **argv)
     sigaction(SIGHUP, &sa, NULL);
     sigaction(SIGUSR2, &sa, NULL);
     if (!setlocale(LC_CTYPE, "")) {
-        mprintf("^Failed to set locale\n");
+        mprintf(LOGG_WARNING, "Failed to set locale\n");
     }
 #endif
 
     if ((opts = optparse(NULL, argc, argv, 1, OPT_CLAMD, 0, NULL)) == NULL) {
-        mprintf("!Can't parse command line options\n");
+        mprintf(LOGG_ERROR, "Can't parse command line options\n");
         return 1;
     }
 
@@ -253,7 +256,7 @@ int main(int argc, char **argv)
             return ret;
         }
         time(&currtime);
-        if (logg("#+++ Started at %s", cli_ctime(&currtime, timestr, sizeof(timestr)))) {
+        if (logg(LOGG_INFO_NF, "+++ Started at %s", cli_ctime(&currtime, timestr, sizeof(timestr)))) {
             fprintf(stderr, "ERROR: Can't initialize the internal logger\n");
             ret = 1;
             return ret;
@@ -277,7 +280,7 @@ int main(int argc, char **argv)
         /* workaround for OpenBSD bug, see https://wwws.clamav.net/bugzilla/show_bug.cgi?id=885 */
         for (ret = 0; (unsigned int)ret < nlsockets; ret++) {
             if (fcntl(lsockets[ret], F_SETFL, fcntl(lsockets[ret], F_GETFL) | O_NONBLOCK) == -1) {
-                logg("!fcntl for lsockets[] failed\n");
+                logg(LOGG_ERROR, "fcntl for lsockets[] failed\n");
                 close(lsockets[ret]);
                 ret = 1;
                 break;
@@ -288,14 +291,14 @@ int main(int argc, char **argv)
         atexit(free_engine);
         daemonizeRet = daemonize_parent_wait(user_name, logg_file);
         if (daemonizeRet < 0) {
-            logg("!daemonize() failed: %s\n", strerror(errno));
+            logg(LOGG_ERROR, "daemonize() failed: %s\n", strerror(errno));
             return 1;
         }
         gengine = NULL;
 #ifdef C_BSD
         for (ret = 0; (unsigned int)ret < nlsockets; ret++) {
             if (fcntl(lsockets[ret], F_SETFL, fcntl(lsockets[ret], F_GETFL) & ~O_NONBLOCK) == -1) {
-                logg("!fcntl for lsockets[] failed\n");
+                logg(LOGG_ERROR, "fcntl for lsockets[] failed\n");
                 close(lsockets[ret]);
                 ret = 1;
                 break;
@@ -312,13 +315,13 @@ int main(int argc, char **argv)
         FILE *fd;
         old_umask = umask(0022);
         if ((fd = fopen(opt->strarg, "w")) == NULL) {
-            //logg("!Can't save PID in file %s\n", opt->strarg);
-            logg("!Can't save PID to file %s: %s\n", opt->strarg, strerror(errno));
+            // logg(LOGG_ERROR, "Can't save PID in file %s\n", opt->strarg);
+            logg(LOGG_ERROR, "Can't save PID to file %s: %s\n", opt->strarg, strerror(errno));
             exit(2);
         } else {
             if (fprintf(fd, "%u\n", (unsigned int)mainpid) < 0) {
-                logg("!Can't save PID to file %s: %s\n", opt->strarg, strerror(errno));
-                //logg("!Can't save PID in file %s\n", opt->strarg);
+                logg(LOGG_ERROR, "Can't save PID to file %s: %s\n", opt->strarg, strerror(errno));
+                // logg(LOGG_ERROR, "Can't save PID in file %s\n", opt->strarg);
                 fclose(fd);
                 exit(2);
             }
@@ -334,7 +337,7 @@ int main(int argc, char **argv)
             struct passwd *pw = getpwuid(0);
             int ret           = lchown(opt->strarg, pw->pw_uid, pw->pw_gid);
             if (ret) {
-                logg("!Can't change ownership of PID file %s '%s'\n", opt->strarg, strerror(errno));
+                logg(LOGG_ERROR, "Can't change ownership of PID file %s '%s'\n", opt->strarg, strerror(errno));
                 exit(2);
             }
         }
@@ -372,7 +375,7 @@ int main(int argc, char **argv)
             cl_set_clcb_msg(msg_callback);
 
         if ((ret = cl_init(CL_INIT_DEFAULT))) {
-            logg("!Can't initialize libclamav: %s\n", cl_strerror(ret));
+            logg(LOGG_ERROR, "Can't initialize libclamav: %s\n", cl_strerror(ret));
             ret = 1;
             break;
         }
@@ -389,7 +392,7 @@ int main(int argc, char **argv)
 
             opt = optget(opts, "LogFacility");
             if ((fac = logg_facility(opt->strarg)) == -1) {
-                logg("!LogFacility: %s: No such facility.\n", opt->strarg);
+                logg(LOGG_ERROR, "LogFacility: %s: No such facility.\n", opt->strarg);
                 ret = 1;
                 break;
             }
@@ -413,64 +416,66 @@ int main(int argc, char **argv)
         if (optget(opts, "LocalSocket")->enabled)
             localsock = 1;
 
-        logg("#Received %d file descriptor(s) from systemd.\n", num_fd);
+        logg(LOGG_INFO_NF, "Received %d file descriptor(s) from systemd.\n", num_fd);
 
         if (!tcpsock && !localsock && num_fd == 0) {
-            logg("!Please define server type (local and/or TCP).\n");
+            logg(LOGG_ERROR, "Please define server type (local and/or TCP).\n");
             ret = 1;
             break;
         }
 
-        logg("#clamd daemon %s (OS: " TARGET_OS_TYPE ", ARCH: " TARGET_ARCH_TYPE ", CPU: " TARGET_CPU_TYPE ")\n", get_version());
+        logg(LOGG_INFO_NF, "clamd daemon %s (OS: " TARGET_OS_TYPE ", ARCH: " TARGET_ARCH_TYPE ", CPU: " TARGET_CPU_TYPE ")\n", get_version());
 
 #ifndef _WIN32
         if (user)
-            logg("#Running as user %s (UID %u, GID %u)\n", user->pw_name, user->pw_uid, user->pw_gid);
+            logg(LOGG_INFO_NF, "Running as user %s (UID %u, GID %u)\n", user->pw_name, user->pw_uid, user->pw_gid);
 #endif
 
 #if defined(RLIMIT_DATA) && defined(C_BSD)
         if (getrlimit(RLIMIT_DATA, &rlim) == 0) {
             /* bb #1941.
-            * On 32-bit FreeBSD if you set ulimit -d to >2GB then mmap() will fail
-            * too soon (after ~120 MB).
-            * Set limit lower than 2G if on 32-bit */
+             * On 32-bit FreeBSD if you set ulimit -d to >2GB then mmap() will fail
+             * too soon (after ~120 MB).
+             * Set limit lower than 2G if on 32-bit */
             uint64_t lim = rlim.rlim_cur;
             if (sizeof(void *) == 4 &&
                 lim > (1ULL << 31)) {
                 rlim.rlim_cur = 1ULL << 31;
                 if (setrlimit(RLIMIT_DATA, &rlim) < 0)
-                    logg("!setrlimit(RLIMIT_DATA) failed: %s\n", strerror(errno));
+                    logg(LOGG_ERROR, "setrlimit(RLIMIT_DATA) failed: %s\n", strerror(errno));
                 else
-                    logg("Running on 32-bit system, and RLIMIT_DATA > 2GB, lowering to 2GB!\n");
+                    logg(LOGG_INFO, "Running on 32-bit system, and RLIMIT_DATA > 2GB, lowering to 2GB!\n");
             }
         }
 #endif
 
         if (logg_size)
-            logg("#Log file size limited to %lld bytes.\n", (long long int)logg_size);
+            logg(LOGG_INFO_NF, "Log file size limited to %lld bytes.\n", (long long int)logg_size);
         else
-            logg("#Log file size limit disabled.\n");
+            logg(LOGG_INFO_NF, "Log file size limit disabled.\n");
 
         min_port = optget(opts, "StreamMinPort")->numarg;
         max_port = optget(opts, "StreamMaxPort")->numarg;
         if (min_port < 1024 || min_port > max_port || max_port > 65535) {
-            logg("!Invalid StreamMinPort/StreamMaxPort: %d, %d\n", min_port, max_port);
+            logg(LOGG_ERROR, "Invalid StreamMinPort/StreamMaxPort: %d, %d\n", min_port, max_port);
             ret = 1;
             break;
         }
 
         if (!(engine = cl_engine_new())) {
-            logg("!Can't initialize antivirus engine\n");
+            logg(LOGG_ERROR, "Can't initialize antivirus engine\n");
             ret = 1;
             break;
         }
 
+        if ((opt = optget(opts, "cache-size"))->enabled)
+            cl_engine_set_num(engine, CL_ENGINE_CACHE_SIZE, opt->numarg);
         if (optget(opts, "disable-cache")->enabled)
             cl_engine_set_num(engine, CL_ENGINE_DISABLE_CACHE, 1);
 
         /* load the database(s) */
         dbdir = optget(opts, "DatabaseDirectory")->strarg;
-        logg("#Reading databases from %s\n", dbdir);
+        logg(LOGG_INFO_NF, "Reading databases from %s\n", dbdir);
 
         if (optget(opts, "DetectPUA")->enabled) {
             dboptions |= CL_DB_PUA;
@@ -478,17 +483,17 @@ int main(int argc, char **argv)
             if ((opt = optget(opts, "ExcludePUA"))->enabled) {
                 dboptions |= CL_DB_PUA_EXCLUDE;
                 i = 0;
-                logg("#Excluded PUA categories:");
+                logg(LOGG_INFO_NF, "Excluded PUA categories:");
 
                 while (opt) {
                     if (!(pua_cats = realloc(pua_cats, i + strlen(opt->strarg) + 3))) {
-                        logg("!Can't allocate memory for pua_cats\n");
+                        logg(LOGG_ERROR, "Can't allocate memory for pua_cats\n");
                         cl_engine_free(engine);
                         ret = 1;
                         break;
                     }
 
-                    logg("# %s", opt->strarg);
+                    logg(LOGG_INFO_NF, " %s", opt->strarg);
 
                     sprintf(pua_cats + i, ".%s", opt->strarg);
                     i += strlen(opt->strarg) + 1;
@@ -499,14 +504,14 @@ int main(int argc, char **argv)
                 if (ret)
                     break;
 
-                logg("#\n");
+                logg(LOGG_INFO_NF, "\n");
                 pua_cats[i]     = '.';
                 pua_cats[i + 1] = 0;
             }
 
             if ((opt = optget(opts, "IncludePUA"))->enabled) {
                 if (pua_cats) {
-                    logg("!ExcludePUA and IncludePUA cannot be used at the same time\n");
+                    logg(LOGG_ERROR, "ExcludePUA and IncludePUA cannot be used at the same time\n");
                     free(pua_cats);
                     ret = 1;
                     break;
@@ -514,15 +519,15 @@ int main(int argc, char **argv)
 
                 dboptions |= CL_DB_PUA_INCLUDE;
                 i = 0;
-                logg("#Included PUA categories:");
+                logg(LOGG_INFO_NF, "Included PUA categories:");
                 while (opt) {
                     if (!(pua_cats = realloc(pua_cats, i + strlen(opt->strarg) + 3))) {
-                        logg("!Can't allocate memory for pua_cats\n");
+                        logg(LOGG_ERROR, "Can't allocate memory for pua_cats\n");
                         ret = 1;
                         break;
                     }
 
-                    logg("# %s", opt->strarg);
+                    logg(LOGG_INFO_NF, " %s", opt->strarg);
 
                     sprintf(pua_cats + i, ".%s", opt->strarg);
                     i += strlen(opt->strarg) + 1;
@@ -533,14 +538,14 @@ int main(int argc, char **argv)
                 if (ret)
                     break;
 
-                logg("#\n");
+                logg(LOGG_INFO_NF, "\n");
                 pua_cats[i]     = '.';
                 pua_cats[i + 1] = 0;
             }
 
             if (pua_cats) {
                 if ((ret = cl_engine_set_str(engine, CL_ENGINE_PUA_CATEGORIES, pua_cats))) {
-                    logg("!cli_engine_set_str(CL_ENGINE_PUA_CATEGORIES) failed: %s\n", cl_strerror(ret));
+                    logg(LOGG_ERROR, "cli_engine_set_str(CL_ENGINE_PUA_CATEGORIES) failed: %s\n", cl_strerror(ret));
                     free(pua_cats);
                     ret = 1;
                     break;
@@ -548,18 +553,18 @@ int main(int argc, char **argv)
                 free(pua_cats);
             }
         } else {
-            logg("#Not loading PUA signatures.\n");
+            logg(LOGG_INFO_NF, "Not loading PUA signatures.\n");
         }
 
         if (optget(opts, "OfficialDatabaseOnly")->enabled) {
             dboptions |= CL_DB_OFFICIAL_ONLY;
-            logg("#Only loading official signatures.\n");
+            logg(LOGG_INFO_NF, "Only loading official signatures.\n");
         }
 
         /* set the temporary dir */
         if ((opt = optget(opts, "TemporaryDirectory"))->enabled) {
             if ((ret = cl_engine_set_str(engine, CL_ENGINE_TMPDIR, opt->strarg))) {
-                logg("!cli_engine_set_str(CL_ENGINE_TMPDIR) failed: %s\n", cl_strerror(ret));
+                logg(LOGG_ERROR, "cli_engine_set_str(CL_ENGINE_TMPDIR) failed: %s\n", cl_strerror(ret));
                 ret = 1;
                 break;
             }
@@ -578,7 +583,7 @@ int main(int argc, char **argv)
         if (optget(opts, "PhishingSignatures")->enabled)
             dboptions |= CL_DB_PHISHING;
         else
-            logg("#Not loading phishing signatures.\n");
+            logg(LOGG_INFO_NF, "Not loading phishing signatures.\n");
 
         if (optget(opts, "Bytecode")->enabled) {
             dboptions |= CL_DB_BYTECODE;
@@ -587,26 +592,26 @@ int main(int argc, char **argv)
 
                 if (!strcmp(opt->strarg, "TrustSigned")) {
                     s = CL_BYTECODE_TRUST_SIGNED;
-                    logg("#Bytecode: Security mode set to \"TrustSigned\".\n");
+                    logg(LOGG_INFO_NF, "Bytecode: Security mode set to \"TrustSigned\".\n");
                 } else if (!strcmp(opt->strarg, "Paranoid")) {
                     s = CL_BYTECODE_TRUST_NOTHING;
-                    logg("#Bytecode: Security mode set to \"Paranoid\".\n");
+                    logg(LOGG_INFO_NF, "Bytecode: Security mode set to \"Paranoid\".\n");
                 } else {
-                    logg("!Unable to parse bytecode security setting:%s\n",
+                    logg(LOGG_ERROR, "Unable to parse bytecode security setting:%s\n",
                          opt->strarg);
                     ret = 1;
                     break;
                 }
 
                 if ((ret = cl_engine_set_num(engine, CL_ENGINE_BYTECODE_SECURITY, s))) {
-                    logg("^Invalid bytecode security setting %s: %s\n", opt->strarg, cl_strerror(ret));
+                    logg(LOGG_WARNING, "Invalid bytecode security setting %s: %s\n", opt->strarg, cl_strerror(ret));
                     ret = 1;
                     break;
                 }
             }
             if ((opt = optget(opts, "BytecodeUnsigned"))->enabled) {
                 dboptions |= CL_DB_BYTECODE_UNSIGNED;
-                logg("#Bytecode: Enabled support for unsigned bytecode.\n");
+                logg(LOGG_INFO_NF, "Bytecode: Enabled support for unsigned bytecode.\n");
             }
 
             if ((opt = optget(opts, "BytecodeMode"))->enabled) {
@@ -627,22 +632,22 @@ int main(int argc, char **argv)
                 cl_engine_set_num(engine, CL_ENGINE_BYTECODE_TIMEOUT, opt->numarg);
             }
         } else {
-            logg("#Bytecode support disabled.\n");
+            logg(LOGG_INFO_NF, "Bytecode support disabled.\n");
         }
 
         if (optget(opts, "PhishingScanURLs")->enabled)
             dboptions |= CL_DB_PHISHING_URLS;
         else
-            logg("#Disabling URL based phishing detection.\n");
+            logg(LOGG_INFO_NF, "Disabling URL based phishing detection.\n");
 
         if (optget(opts, "DevACOnly")->enabled) {
-            logg("#Only using the A-C matcher.\n");
+            logg(LOGG_INFO_NF, "Only using the A-C matcher.\n");
             cl_engine_set_num(engine, CL_ENGINE_AC_ONLY, 1);
         }
 
         if ((opt = optget(opts, "DevACDepth"))->enabled) {
             cl_engine_set_num(engine, CL_ENGINE_AC_MAXDEPTH, opt->numarg);
-            logg("#Max A-C depth set to %u\n", (unsigned int)opt->numarg);
+            logg(LOGG_INFO_NF, "Max A-C depth set to %u\n", (unsigned int)opt->numarg);
         }
 
 #ifdef _WIN32
@@ -651,15 +656,21 @@ int main(int argc, char **argv)
             svc_register("clamd");
         }
 #endif
+        if (optget(opts, "fail-if-cvd-older-than")->enabled) {
+            if (check_if_cvd_outdated(dbdir, optget(opts, "fail-if-cvd-older-than")->numarg) != CL_SUCCESS) {
+                ret = 1;
+                break;
+            }
+        }
 
         if ((ret = cl_load(dbdir, engine, &sigs, dboptions))) {
-            logg("!%s\n", cl_strerror(ret));
+            logg(LOGG_ERROR, "%s\n", cl_strerror(ret));
             ret = 1;
             break;
         }
 
         if ((ret = statinidir(dbdir))) {
-            logg("!%s\n", cl_strerror(ret));
+            logg(LOGG_ERROR, "%s\n", cl_strerror(ret));
             ret = 1;
             break;
         }
@@ -667,12 +678,12 @@ int main(int argc, char **argv)
         if (optget(opts, "DisableCertCheck")->enabled)
             cl_engine_set_num(engine, CL_ENGINE_DISABLE_PE_CERTS, 1);
 
-        logg("#Loaded %u signatures.\n", sigs);
+        logg(LOGG_INFO_NF, "Loaded %u signatures.\n", sigs);
 
         /* pcre engine limits - required for cl_engine_compile */
         if ((opt = optget(opts, "PCREMatchLimit"))->active) {
             if ((ret = cl_engine_set_num(engine, CL_ENGINE_PCRE_MATCH_LIMIT, opt->numarg))) {
-                logg("!cli_engine_set_num(PCREMatchLimit) failed: %s\n", cl_strerror(ret));
+                logg(LOGG_ERROR, "cli_engine_set_num(PCREMatchLimit) failed: %s\n", cl_strerror(ret));
                 cl_engine_free(engine);
                 return 1;
             }
@@ -680,14 +691,14 @@ int main(int argc, char **argv)
 
         if ((opt = optget(opts, "PCRERecMatchLimit"))->active) {
             if ((ret = cl_engine_set_num(engine, CL_ENGINE_PCRE_RECMATCH_LIMIT, opt->numarg))) {
-                logg("!cli_engine_set_num(PCRERecMatchLimit) failed: %s\n", cl_strerror(ret));
+                logg(LOGG_ERROR, "cli_engine_set_num(PCRERecMatchLimit) failed: %s\n", cl_strerror(ret));
                 cl_engine_free(engine);
                 return 1;
             }
         }
 
         if ((ret = cl_engine_compile(engine)) != 0) {
-            logg("!Database initialization error: %s\n", cl_strerror(ret));
+            logg(LOGG_ERROR, "Database initialization error: %s\n", cl_strerror(ret));
             ret = 1;
             break;
         }
@@ -745,7 +756,7 @@ int main(int argc, char **argv)
                     struct group *pgrp = getgrnam(gname);
 
                     if (!pgrp) {
-                        logg("!Unknown group %s\n", gname);
+                        logg(LOGG_ERROR, "Unknown group %s\n", gname);
                         ret = 1;
                         break;
                     }
@@ -753,7 +764,7 @@ int main(int argc, char **argv)
                     sock_gid = pgrp->gr_gid;
                 }
                 if (chown(optget(opts, "LocalSocket")->strarg, -1, sock_gid)) {
-                    logg("!Failed to change socket ownership to group %s\n", gname);
+                    logg(LOGG_ERROR, "Failed to change socket ownership to group %s\n", gname);
                     ret = 1;
                     break;
                 }
@@ -764,7 +775,7 @@ int main(int argc, char **argv)
                 sock_mode = strtol(optget(opts, "LocalSocketMode")->strarg, &end, 8);
 
                 if (*end) {
-                    logg("!Invalid LocalSocketMode %s\n", optget(opts, "LocalSocketMode")->strarg);
+                    logg(LOGG_ERROR, "Invalid LocalSocketMode %s\n", optget(opts, "LocalSocketMode")->strarg);
                     ret = 1;
                     break;
                 }
@@ -773,7 +784,7 @@ int main(int argc, char **argv)
             }
 
             if (chmod(optget(opts, "LocalSocket")->strarg, sock_mode & 0666)) {
-                logg("!Cannot set socket permission for %s to %3o\n", optget(opts, "LocalSocket")->strarg, sock_mode & 0666);
+                logg(LOGG_ERROR, "Cannot set socket permission for %s to %3o\n", optget(opts, "LocalSocket")->strarg, sock_mode & 0666);
                 ret = 1;
                 break;
             }
@@ -803,7 +814,7 @@ int main(int argc, char **argv)
         if (0 == foreground) {
             if (!debug_mode) {
                 if (chdir("/") == -1) {
-                    logg("^Can't change current working directory to root\n");
+                    logg(LOGG_WARNING, "Can't change current working directory to root\n");
                 }
             }
 
@@ -828,7 +839,7 @@ int main(int argc, char **argv)
 #endif
 
         if (nlsockets == 0) {
-            logg("!Not listening on any interfaces\n");
+            logg(LOGG_ERROR, "Not listening on any interfaces\n");
             ret = 1;
             break;
         }
@@ -838,7 +849,7 @@ int main(int argc, char **argv)
     } while (0);
 
     if (num_fd == 0) {
-        logg("*Closing the main socket%s.\n", (nlsockets > 1) ? "s" : "");
+        logg(LOGG_DEBUG, "Closing the main socket%s.\n", (nlsockets > 1) ? "s" : "");
 
         for (i = 0; i < nlsockets; i++) {
             closesocket(lsockets[i]);
@@ -848,9 +859,9 @@ int main(int argc, char **argv)
             opt = optget(opts, "LocalSocket");
 
             if (unlink(opt->strarg) == -1)
-                logg("!Can't unlink the socket file %s\n", opt->strarg);
+                logg(LOGG_ERROR, "Can't unlink the socket file %s\n", opt->strarg);
             else
-                logg("Socket file removed.\n");
+                logg(LOGG_INFO, "Socket file removed.\n");
         }
 #endif
     }

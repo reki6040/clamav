@@ -1,7 +1,7 @@
 # ClamAV
 
 <p align="center">
-  <img width="250" height="250" src="https://raw.githubusercontent.com/Cisco-Talos/clamav-devel/dev/0.104/logo.png" alt='Maeve, the ClamAV mascot'>
+  <img width="250" height="250" src="https://raw.githubusercontent.com/Cisco-Talos/clamav/main/logo.png" alt='Maeve, the ClamAV mascot'>
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
 
 ClamAV documentation is hosted at [docs.clamav.net](https://docs.clamav.net/).
 The source archive for each release also includes a copy of the documentation
-for [offline](docs/html/UserManual.html) reading.
+for [offline](docs/html/index.html) reading.
 
 You can contribute to the documentation by submitting improvements to
 [Cisco-Talos/clamav-documentation](https://github.com/Cisco-Talos/clamav-documentation)
@@ -113,7 +113,6 @@ ClamAV contains a number of components that include code copied in part or in
 whole from 3rd party projects and whose code is not owned by Cisco and which
 are licensed differently than ClamAV. These include:
 
-- tomsfastmath:  public domain
 - Yara: Apache 2.0 license
   - Yara has since switched to the BSD 3-Clause License;
     Our source is out-of-date and needs to be updated.

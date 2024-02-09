@@ -1,7 +1,7 @@
 /*
  *  Extract XLM (Excel 4.0) macro source code for component MS Office Documents
  *
- *  Copyright (C) 2020-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2020-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *
  *  Authors: Jonas Zaddach
  *
@@ -32,7 +32,7 @@
 #include "clamav-types.h"
 #include "uniq.h"
 
-//Page 58 CONTINUE record Microsoft Office Excel97-2007Binary File Format (.xls) Specification
+// Page 58 CONTINUE record Microsoft Office Excel97-2007Binary File Format (.xls) Specification
 #define BIFF8_MAX_RECORD_LENGTH 8228
 
 typedef enum biff8_opcode {

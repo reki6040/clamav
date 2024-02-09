@@ -1,4 +1,4 @@
-# Copyright (C) 2019-2020 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+# Copyright (C) 2019-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
 
 add_compile_definitions(RARDLL)
 add_compile_definitions(WARN_DLOPEN_FAIL)
@@ -32,7 +32,6 @@ set( UNRAR_SOURCES
     global.cpp
     hash.cpp
     headers.cpp
-    isnt.cpp
     list.cpp
     match.cpp
     options.cpp
@@ -62,13 +61,19 @@ set( UNRAR_SOURCES
     unpack.cpp
     volume.cpp
 )
+if(WIN32)
+    list(APPEND UNRAR_SOURCES isnt.cpp)
+endif()
 
 if(ENABLE_SHARED_LIB)
     # The unrar shared library.
     add_library( clamunrar SHARED )
-    set_target_properties(clamunrar PROPERTIES
+    set_target_properties( clamunrar PROPERTIES
         VERSION ${LIBCLAMAV_VERSION}
-        SOVERSION ${LIBCLAMAV_SOVERSION})
+        SOVERSION ${LIBCLAMAV_SOVERSION}
+        CXX_STANDARD 11
+    )
+
     target_sources( clamunrar
         PRIVATE
             ${UNRAR_SOURCES}
@@ -84,12 +89,22 @@ if(ENABLE_SHARED_LIB)
             COMPILE_FLAGS "-Wno-logical-op-parentheses -Wno-switch -Wno-dangling-else")
     endif()
 
+    if (APPLE AND CLAMAV_SIGN_FILE)
+        set_target_properties( clamunrar PROPERTIES
+            XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY ${CODE_SIGN_IDENTITY}
+            XCODE_ATTRIBUTE_DEVELOPMENT_TEAM ${DEVELOPMENT_TEAM_ID}
+        )
+    endif()
+
     if(WIN32)
         set_target_properties(clamunrar PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    elseif(UNIX AND NOT APPLE)
+        target_link_options(clamunrar PRIVATE "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/libclamunrar.map")
     endif()
 
     if(WIN32)
         install(TARGETS clamunrar DESTINATION . COMPONENT libraries)
+        install(FILES $<TARGET_PDB_FILE:clamunrar> DESTINATION . OPTIONAL COMPONENT libraries)
     else()
         install(TARGETS clamunrar DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT libraries)
     endif()
@@ -100,6 +115,9 @@ endif()
 if(ENABLE_STATIC_LIB)
     # The clamunrar static library.
     add_library( clamunrar_static STATIC)
+    set_target_properties( clamunrar_static PROPERTIES
+        CXX_STANDARD 11
+    )
     target_sources( clamunrar_static
         PRIVATE
             ${UNRAR_SOURCES}

@@ -1,4 +1,4 @@
-# Copyright (C) 2020-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+# Copyright (C) 2020-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
 
 if(WIN32)
     add_definitions(-DWIN32_LEAN_AND_MEAN)
@@ -20,12 +20,20 @@ target_sources( freshclam-bin
         notify.c
         notify.h )
 if(WIN32)
-    target_sources( freshclam-bin 
-        PRIVATE 
+    target_sources( freshclam-bin
+        PRIVATE
             ${CMAKE_SOURCE_DIR}/win32/res/freshclam.rc
             ${CMAKE_SOURCE_DIR}/win32/res/clam.manifest )
 endif()
 set_target_properties( freshclam-bin PROPERTIES COMPILE_FLAGS "${WARNCFLAGS}" )
+
+if (APPLE AND CLAMAV_SIGN_FILE)
+    set_target_properties( freshclam-bin PROPERTIES
+        XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY ${CODE_SIGN_IDENTITY}
+        XCODE_ATTRIBUTE_DEVELOPMENT_TEAM ${DEVELOPMENT_TEAM_ID}
+    )
+endif()
+
 target_link_libraries(freshclam-bin
     PRIVATE
         ClamAV::libfreshclam
@@ -33,6 +41,7 @@ target_link_libraries(freshclam-bin
         ClamAV::common )
 if(WIN32)
     install(TARGETS freshclam-bin DESTINATION . COMPONENT programs)
+    install(FILES $<TARGET_PDB_FILE:freshclam-bin> DESTINATION . OPTIONAL COMPONENT programs)
 else()
     install(TARGETS freshclam-bin DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT programs)
 endif()
@@ -50,6 +59,20 @@ if(SYSTEMD_FOUND)
         ${CMAKE_CURRENT_BINARY_DIR}/clamav-freshclam.service @ONLY)
     install(
         FILES ${CMAKE_CURRENT_BINARY_DIR}/clamav-freshclam.service
+        DESTINATION ${SYSTEMD_UNIT_DIR}
+        COMPONENT programs)
+    configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/clamav-freshclam-once.service.in
+        ${CMAKE_CURRENT_BINARY_DIR}/clamav-freshclam-once.service @ONLY)
+    install(
+        FILES ${CMAKE_CURRENT_BINARY_DIR}/clamav-freshclam-once.service
+        DESTINATION ${SYSTEMD_UNIT_DIR}
+        COMPONENT programs)
+    configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/clamav-freshclam-once.timer.in
+        ${CMAKE_CURRENT_BINARY_DIR}/clamav-freshclam-once.timer @ONLY)
+    install(
+        FILES ${CMAKE_CURRENT_BINARY_DIR}/clamav-freshclam-once.timer
         DESTINATION ${SYSTEMD_UNIT_DIR}
         COMPONENT programs)
 endif()

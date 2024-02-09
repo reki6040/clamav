@@ -1,7 +1,7 @@
 /*
  * Text detection based on ascmagic.c from the file(1) utility.
  *
- * Portions Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ * Portions Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  * Portions Copyright (C) 2008-2013 Sourcefire, Inc.
  *
  * Copyright (c) Ian F. Darwin 1986-1995.
@@ -83,8 +83,8 @@ static int td_isascii(const unsigned char *buf, unsigned int len)
     unsigned int i;
 
     /* Validate that the data all falls within the bounds of
-	 * plain ASCII, ISO-8859 text, and non-ISO extended ASCII (Mac, IBM PC)
-	 */
+     * plain ASCII, ISO-8859 text, and non-ISO extended ASCII (Mac, IBM PC)
+     */
     for (i = 0; i < len; i++)
         if (text_chars[buf[i]] == F)
             return 0;
@@ -99,9 +99,9 @@ static int td_isutf8(const unsigned char *buf, unsigned int len)
     for (i = 0; i < len; i++) {
         if ((buf[i] & 0x80) == 0) { /* 0xxxxxxx is plain ASCII */
             /*
-	     * Even if the whole file is valid UTF-8 sequences,
-	     * still reject it if it uses weird control characters.
-	     */
+             * Even if the whole file is valid UTF-8 sequences,
+             * still reject it if it uses weird control characters.
+             */
             if (text_chars[buf[i]] != T)
                 return 0;
 

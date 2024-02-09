@@ -50,15 +50,13 @@ configuration options.
     - [`libcurl`](#libcurl)
     - [`ncurses` or `pdcurses`, for `clamdtop`](#ncurses-or-pdcurses-for-clamdtop)
     - [Bytecode Runtime](#bytecode-runtime)
+      - [Interpreter Bytecode Runtime](#interpreter-bytecode-runtime)
+      - [LLVM JIT Bytecode Runtime](#llvm-jit-bytecode-runtime)
+      - [Disabling the Bytecode Runtime](#disabling-the-bytecode-runtime)
   - [Compiling For Multiple Architectures (Cross-Compiling)](#compiling-for-multiple-architectures-cross-compiling)
   - [Un-install](#un-install)
 
 ## Known Issues / To-do's:
-
-- The newest LLVM version supported is 3.6.2. We ran out of time during 0.104
-  development to add support for newer versions of LLVM.
-  The bytecode interpreter is therefore the default option for the bytecode
-  signature runtime in this release.
 
 - Complete the `MAINTAINER_MODE` option to generate jsparse files with GPerf.
 
@@ -80,6 +78,7 @@ The Windows Visual Studio and Autotools build systems have been removed.
 You will need:
 - CMake (3.14+ for Unix/Linux; 3.16+ for Windows)
 - A C compiler toolchain such as `gcc`, `clang`, or Microsoft Visual Studio.
+- The Rust compiler toolchain.
 
 Recommended tools:
 - pkg-config
@@ -89,6 +88,11 @@ For Maintainer-mode only (not recommended):
 - Flex
 - Bison
 - Gperf
+
+On systems with multiple implementations of build-time tools it may be
+desirable to select a specific implementation to use rather than relying on
+CMake's logic. See [Custom CMake Config Options](#custom-cmake-config-options)
+for information on this topic.
 
 ### External Library Dependencies
 
@@ -154,7 +158,7 @@ mkdir build && cd build
 
 ## CMake Basics
 
-CMake isn't actually a built system. It's a meta-build system. In other words,
+CMake isn't actually a build system. It is a meta-build system. In other words,
 CMake is a build system *generator*.
 
 On Unix systems, CMake generates Makefiles by default, just like Autotools.
@@ -196,7 +200,7 @@ your build will depend on which type of generator you're using:
   These generate a build system that can only build a single build type.
 
   With a single-config generator, you need to specify the build type up
-  front. You can do this using the `-C` option. For example:
+  front. You can do this using the `-G` option. For example:
   ```sh
   # Configure
   cmake .. -G Ninja -D CMAKE_BUILD_TYPE=RelWithDebInfo
@@ -393,6 +397,12 @@ The following is a complete list of CMake options unique to configuring ClamAV:
 
   _Default: `ON`_
 
+- `DO_NOT_SET_RPATH`: By default RPATH is set in executeables resulting using
+  paths set at build time instead of using system defaults. By setting this
+  `ON` system defaults are used.
+
+  _Default: `OFF`_
+
 - `ENABLE_WERROR`: Compile time warnings will cause build failures (i.e.
   `-Werror`)
 
@@ -496,12 +506,24 @@ The following is a complete list of CMake options unique to configuring ClamAV:
   _Default: `ON`_
 
 - `MAINTAINER_MODE`: Generate Yara lexer and grammar C source with Flex & Bison.
+  Generate Rust bindings (`libclamav_rust/src/sys.rs`).
   *To-do*: Also generate JS parse source with Gperf.
 
   _Default: `OFF`_
 
 - `SYSTEMD_UNIT_DIR`: Install SystemD service files to a specific directory.
   This will fail the build if SystemD not found.
+
+  _Default: not set_
+
+- `PYTHON_FIND_VER`: Select a specific implementation of Python that will
+  be called during the test phase.
+
+  _Default: not set_
+
+- `RUST_COMPILER_TARGET`: Use a custom target triple to build the Rust components.
+  Needed for cross-compiling. You must also have installed the target toolchain.
+  See: https://doc.rust-lang.org/nightly/rustc/platform-support.html
 
   _Default: not set_
 
@@ -530,7 +552,7 @@ But if you:
 
 ```sh
   -D BZIP2_INCLUDE_DIR="_filepath of bzip2 header directory_"
-  -D BZIP2_LIBRARIES="_filepath of bzip2 library_"
+  -D BZIP2_LIBRARY_RELEASE="_filepath of bzip2 library_"
 ```
 
 ### `zlib`
@@ -603,9 +625,16 @@ need to specify the following:
 
 ### `llvm` (optional, _see "Bytecode Runtime" section_)
 
+Set:
 ```sh
   -D BYTECODE_RUNTIME="llvm"
-  -D LLVM_ROOT_DIR="_path to llvm install root_" -D LLVM_FIND_VERSION="3.6.0"
+```
+
+Options for a custom LLVM install path, or to select a specific version if you
+have multiple LLVM installations:
+```sh
+  -D LLVM_ROOT_DIR="_path to llvm install root_"
+  -D LLVM_FIND_VERSION="3.6.0"
 ```
 
 ### `libcurl`
@@ -654,6 +683,8 @@ ClamAV has two bytecode runtimes:
    We ran out of time in 0.104 development to update to support newer versions
    of LLVM. LLVM 3.6.2 is the newest version supported in ClamAV 0.104.
 
+#### Interpreter Bytecode Runtime
+
 At the moment, the *interpreter* is the default runtime, while we work out
 compatibility issues with newer versions of libLLVM. This default equates to:
 
@@ -661,15 +692,54 @@ compatibility issues with newer versions of libLLVM. This default equates to:
 cmake .. -D BYTECODE_RUNTIME="interpreter"
 ```
 
-If you wish to build using LLVM instead of the intereter, you will need to
-obtain v3.6 of the LLVM development libraries. Then build using these options:
+#### LLVM JIT Bytecode Runtime
 
+If you wish to build using LLVM JIT for the bytecode runtime instead of the
+bytecode interpreter, you will need to install the LLVM development libraries.
+ClamAV currently supports LLVM versions 8.0 through 12.0.
+
+To build with LLVM for the bytecode runtime, build with this option:
 ```sh
 cmake .. \
-  -D BYTECODE_RUNTIME="llvm"       \
-  -D LLVM_ROOT_DIR="/opt/llvm/3.6" \
-  -D LLVM_FIND_VERSION="3.6.0"
+  -D BYTECODE_RUNTIME="llvm"
 ```
+
+If you have multiple LLVM installations, or have a custom path for the LLVM
+installation, you may also set `LLVM_ROOT_DIR` and `LLVM_FIND_VERSION` options
+to help CMake find the right LLVm installation. For example:
+```sh
+  -D LLVM_ROOT_DIR="/opt/llvm/8.0"
+  -D LLVM_FIND_VERSION="8.0.1"
+```
+
+If the build fails to detect LLVM or linking with LLVM fails using the above
+options, you may try adding this CMake parameter to enable
+[CMake's package-config feature](https://cmake.org/cmake/help/latest/variable/CMAKE_FIND_PACKAGE_PREFER_CONFIG.html):
+```
+  -D CMAKE_FIND_PACKAGE_PREFER_CONFIG=TRUE
+```
+Normally, ClamAV would use the `FindLLVM.cmake` module in our `<src>/cmake`
+directory to find LLVM. With this option enabled, it will instead try to use
+`<LLVM_ROOT_DIR>/lib/cmake/llvm/LLVMConfig.cmake` to determine the LLVM package
+configuration.
+
+> _Known Issues_: Known issues building with LLVM:
+> - Enabling `CMAKE_FIND_PACKAGE_PREFER_CONFIG` may fail to build with some LLVM
+>   packages that are missing the `libPolly.a` library. This includes some LLVM
+>   packages distributed by Debian, Ubuntu, and OpenSUSE.
+> - Not enabling `CMAKE_FIND_PACKAGE_PREFER_CONFIG` may fail to build with some
+>   LLVM packages using `gcc` when RTTI was disabled for the LLVM build, but is
+>   enabled for the ClamAV build. Using `clang` instead of `gcc` may have better
+>   results.
+> - Building ClamAV in Debug-mode with a Release-LLVM build may fail, and
+>   building ClamAV in Release-mode with a Debug-LLVM build may fail.
+> - The unit tests may fail in Debug-mode builds on the `libclamav` "bytecode"
+>   test due to an assertion/abort.
+> - Windows-only: CMake fails to collect library dependencies when building with
+>   LLVM. That is, the tests will fail because it can't load libssl.dll and
+>   other DLL dependencies. This issue only applies when not using VCPkg.
+
+#### Disabling the Bytecode Runtime
 
 To disable bytecode signature support entirely, you may build with this option:
 
@@ -679,8 +749,30 @@ cmake .. -D BYTECODE_RUNTIME="none"
 
 ## Compiling For Multiple Architectures (Cross-Compiling)
 
-For cross-compling information, see the cmake-toolchains documentation in the
+Cross-compiling in ClamAV with CMake & Rust is experimental at this time.
+If you have a need to cross-compile, your help and feedback testing and
+validating cross-compilation support would be appreciated.
+
+The CMake cross-compiling documentation can be found here:
 [CMake Manual](https://cmake.org/cmake/help/latest/manual/cmake-toolchains.7.html)
+
+For a cross-build, the library dependencies must have also been built for the
+target platform, and the CMake options set to target these libraries.
+
+ClamAV's Rust toolchain integration also complicates the build.
+In addition to specifying the toolchain for C/C++ through the CMake options
+described in the CMake Manual, you will need to also select the target triple
+for the Rust compiler toolchain. If you have a mismatch of targets between the
+C and Rust toolchains, it will fail to compile properly.
+
+The ClamAV project provides a CMake option `-D RUST_COMPILER_TARGET=<triple>`
+that mimics the CMake option when using Clang to cross-compile.
+
+Rust installations typically only come with the target for your current system.
+So you will need to install the desired toolchain using `rustup target add`.
+Run `rustup target add --help` for help.
+For a list of available target triples, see:
+https://doc.rust-lang.org/nightly/rustc/platform-support.html
 
 ## Un-install
 

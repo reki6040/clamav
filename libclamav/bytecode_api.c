@@ -1,7 +1,7 @@
 /*
  *  ClamAV bytecode internal API
  *
- *  Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2009-2013 Sourcefire, Inc.
  *
  *  Authors: Török Edvin
@@ -99,7 +99,7 @@ int32_t cli_bcapi_read(struct cli_bc_ctx *ctx, uint8_t *data, int32_t size)
         API_MISUSE();
         return -1;
     }
-    if (size < 0 || size > CLI_MAX_ALLOCATION) {
+    if (size < 0) {
         cli_warnmsg("bytecode: negative read size: %d\n", size);
         API_MISUSE();
         return -1;
@@ -112,7 +112,7 @@ int32_t cli_bcapi_read(struct cli_bc_ctx *ctx, uint8_t *data, int32_t size)
     }
     cli_event_int(EV, BCEV_OFFSET, ctx->off);
     cli_event_fastdata(EV, BCEV_READ, data, size);
-    //cli_event_data(EV, BCEV_READ, data, n);
+    // cli_event_data(EV, BCEV_READ, data, n);
     ctx->off += n;
     return (int32_t)n;
 }
@@ -161,11 +161,12 @@ uint32_t cli_bcapi_debug_print_str(struct cli_bc_ctx *ctx, const uint8_t *str, u
 uint32_t cli_bcapi_debug_print_uint(struct cli_bc_ctx *ctx, uint32_t a)
 {
     cli_event_int(EV, BCEV_DBG_INT, a);
-    //cli_dbgmsg("bytecode debug: %d\n", a);
-    //return 0;
+    // cli_dbgmsg("bytecode debug: %d\n", a);
+    // return 0;
     if (!cli_debug_flag)
         return 0;
-    return fprintf(stderr, "%d", a);
+
+    return cli_eprintf("%d", a);
 }
 
 /*TODO: compiler should make sure that only constants are passed here, and not
@@ -219,8 +220,8 @@ int32_t cli_bcapi_write(struct cli_bc_ctx *ctx, uint8_t *data, int32_t len)
         API_MISUSE();
         return -1;
     }
-    if (!ctx->outfd) {
-        ctx->tempfile = cli_gentemp(cctx ? cctx->engine->tmpdir : NULL);
+    if (-1 == ctx->outfd) {
+        ctx->tempfile = cli_gentemp_with_prefix(cctx ? cctx->sub_tmpdir : NULL, "bcapi_write");
         if (!ctx->tempfile) {
             cli_dbgmsg("Bytecode API: Unable to allocate memory for tempfile\n");
             cli_event_error_oom(EV, 0);
@@ -228,7 +229,6 @@ int32_t cli_bcapi_write(struct cli_bc_ctx *ctx, uint8_t *data, int32_t len)
         }
         ctx->outfd = open(ctx->tempfile, O_RDWR | O_CREAT | O_EXCL | O_TRUNC | O_BINARY, 0600);
         if (ctx->outfd == -1) {
-            ctx->outfd = 0;
             cli_warnmsg("Bytecode API: Can't create file %s: %s\n", ctx->tempfile, cli_strerror(errno, err, sizeof(err)));
             cli_event_error_str(EV, "cli_bcapi_write: Can't create temporary file");
             free(ctx->tempfile);
@@ -357,7 +357,8 @@ uint32_t cli_bcapi_pe_rawaddr(struct cli_bc_ctx *ctx, uint32_t rva)
     uint32_t ret;
     unsigned err                      = 0;
     const struct cli_pe_hook_data *pe = ctx->hooks.pedata;
-    ret                               = cli_rawaddr(rva, ctx->sections, pe->nsections, &err,
+
+    ret = cli_rawaddr(rva, ctx->sections, pe->nsections, &err,
                       ctx->file_size, pe->hdr_size);
     if (err) {
         cli_dbgmsg("bcapi_pe_rawaddr invalid rva: %u\n", rva);
@@ -548,13 +549,7 @@ int32_t cli_bcapi_extract_new(struct cli_bc_ctx *ctx, int32_t id)
     cli_dbgmsg("bytecode: scanning extracted file %s\n", ctx->tempfile);
     cctx = (cli_ctx *)ctx->ctx;
     if (cctx) {
-        cctx->recursion++;
-        if (ctx->containertype != CL_TYPE_ANY) {
-            size_t csize = cli_get_container_size(cctx, -2);
-            cli_set_container(cctx, ctx->containertype, csize);
-        }
-        res = cli_magic_scan_desc(ctx->outfd, ctx->tempfile, cctx, NULL);
-        cctx->recursion--;
+        res = cli_magic_scan_desc_type(ctx->outfd, ctx->tempfile, cctx, ctx->containertype, NULL, LAYER_ATTRIBUTES_NONE);
         if (res == CL_VIRUS) {
             ctx->virname = cli_get_last_virus(cctx);
             ctx->found   = 1;
@@ -562,13 +557,14 @@ int32_t cli_bcapi_extract_new(struct cli_bc_ctx *ctx, int32_t id)
     }
     if ((cctx && cctx->engine->keeptmp) ||
         (ftruncate(ctx->outfd, 0) == -1)) {
-
         close(ctx->outfd);
-        if (!(cctx && cctx->engine->keeptmp) && ctx->tempfile)
+        ctx->outfd = -1;
+
+        if (!(cctx && cctx->engine->keeptmp) && ctx->tempfile) {
             cli_unlink(ctx->tempfile);
+        }
         free(ctx->tempfile);
         ctx->tempfile = NULL;
-        ctx->outfd    = 0;
     }
     cli_dbgmsg("bytecode: extracting new file with id %u\n", id);
     return res;
@@ -630,7 +626,7 @@ int32_t cli_bcapi_hashset_add(struct cli_bc_ctx *ctx, int32_t id, uint32_t key)
     struct cli_hashset *s = get_hashset(ctx, id);
     if (!s)
         return -1;
-    return cli_hashset_addkey(s, key);
+    return cli_hashset_addkey(s, key) == CL_SUCCESS ? 0 : -1;
 }
 
 int32_t cli_bcapi_hashset_remove(struct cli_bc_ctx *ctx, int32_t id, uint32_t key)
@@ -638,7 +634,7 @@ int32_t cli_bcapi_hashset_remove(struct cli_bc_ctx *ctx, int32_t id, uint32_t ke
     struct cli_hashset *s = get_hashset(ctx, id);
     if (!s)
         return -1;
-    return cli_hashset_removekey(s, key);
+    return cli_hashset_removekey(s, key) == CL_SUCCESS ? 0 : -1;
 }
 
 int32_t cli_bcapi_hashset_contains(struct cli_bc_ctx *ctx, int32_t id, uint32_t key)
@@ -978,7 +974,8 @@ int32_t cli_bcapi_lzma_init(struct cli_bc_ctx *ctx, int32_t from, int32_t to)
     memset(&b->stream, 0, sizeof(b->stream));
 
     b->stream.avail_in = avail_in_orig;
-    b->stream.next_in  = (void *)cli_bcapi_buffer_pipe_read_get(ctx, b->from,
+
+    b->stream.next_in = (void *)cli_bcapi_buffer_pipe_read_get(ctx, b->from,
                                                                b->stream.avail_in);
 
     if ((ret = cli_LzmaInit(&b->stream, 0)) != LZMA_RESULT_OK) {
@@ -1405,7 +1402,7 @@ int32_t cli_bcapi_map_new(struct cli_bc_ctx *ctx, int32_t keysize, int32_t value
     ctx->maps  = s;
     ctx->nmaps = n;
     s          = &s[n - 1];
-    cli_map_init(s, keysize, valuesize, 16);
+    (void)cli_map_init(s, keysize, valuesize, 16);
     return n - 1;
 }
 
@@ -1418,10 +1415,26 @@ static struct cli_map *get_hashtab(struct cli_bc_ctx *ctx, int32_t id)
 
 int32_t cli_bcapi_map_addkey(struct cli_bc_ctx *ctx, const uint8_t *key, int32_t keysize, int32_t id)
 {
+    cl_error_t ret;
     struct cli_map *s = get_hashtab(ctx, id);
     if (!s)
         return -1;
-    return cli_map_addkey(s, key, keysize);
+
+    ret = cli_map_addkey(s, key, keysize);
+    switch (ret) {
+        case CL_SUCCESS: {
+            // key didn't exist and was added
+            return 1;
+        }
+        case CL_ECREAT: {
+            // already added
+            return 0;
+        }
+        default: {
+            // error occurred
+            return -1;
+        }
+    }
 }
 
 int32_t cli_bcapi_map_setvalue(struct cli_bc_ctx *ctx, const uint8_t *value, int32_t valuesize, int32_t id)
@@ -1429,23 +1442,55 @@ int32_t cli_bcapi_map_setvalue(struct cli_bc_ctx *ctx, const uint8_t *value, int
     struct cli_map *s = get_hashtab(ctx, id);
     if (!s)
         return -1;
-    return cli_map_setvalue(s, value, valuesize);
+    return cli_map_setvalue(s, value, valuesize) == CL_SUCCESS ? 0 : -1;
 }
 
 int32_t cli_bcapi_map_remove(struct cli_bc_ctx *ctx, const uint8_t *key, int32_t keysize, int32_t id)
 {
+    cl_error_t ret;
     struct cli_map *s = get_hashtab(ctx, id);
     if (!s)
         return -1;
-    return cli_map_removekey(s, key, keysize);
+
+    ret = cli_map_removekey(s, key, keysize);
+    switch (ret) {
+        case CL_SUCCESS: {
+            // found and removed
+            return 1;
+        }
+        case CL_EUNLINK: {
+            // not found
+            return 0;
+        }
+        default: {
+            // error occurred
+            return -1;
+        }
+    }
 }
 
 int32_t cli_bcapi_map_find(struct cli_bc_ctx *ctx, const uint8_t *key, int32_t keysize, int32_t id)
 {
+    cl_error_t ret;
     struct cli_map *s = get_hashtab(ctx, id);
     if (!s)
         return -1;
-    return cli_map_find(s, key, keysize);
+
+    ret = cli_map_find(s, key, keysize);
+    switch (ret) {
+        case CL_SUCCESS: {
+            // found
+            return 1;
+        }
+        case CL_EACCES: {
+            // not found
+            return 0;
+        }
+        default: {
+            // error occurred
+            return -1;
+        }
+    }
 }
 
 int32_t cli_bcapi_map_getvaluesize(struct cli_bc_ctx *ctx, int32_t id)
@@ -1463,7 +1508,7 @@ uint8_t *cli_bcapi_map_getvalue(struct cli_bc_ctx *ctx, int32_t id, int32_t valu
         return NULL;
     if (cli_map_getvalue_size(s) != valuesize)
         return NULL;
-    return cli_map_getvalue(s);
+    return (uint8_t *)cli_map_getvalue(s);
 }
 
 int32_t cli_bcapi_map_done(struct cli_bc_ctx *ctx, int32_t id)
@@ -1854,20 +1899,6 @@ uint32_t cli_bcapi_check_platform(struct cli_bc_ctx *ctx, uint32_t a, uint32_t b
     return ret;
 }
 
-int cli_bytecode_context_setpdf(struct cli_bc_ctx *ctx, unsigned phase,
-                                unsigned nobjs,
-                                struct pdf_obj **objs, uint32_t *pdf_flags,
-                                uint32_t pdfsize, uint32_t pdfstartoff)
-{
-    ctx->pdf_nobjs    = nobjs;
-    ctx->pdf_objs     = objs;
-    ctx->pdf_flags    = pdf_flags;
-    ctx->pdf_size     = pdfsize;
-    ctx->pdf_startoff = pdfstartoff;
-    ctx->pdf_phase    = phase;
-    return 0;
-}
-
 int32_t cli_bcapi_pdf_get_obj_num(struct cli_bc_ctx *ctx)
 {
     if (!ctx->pdf_phase)
@@ -2236,7 +2267,7 @@ int32_t cli_bcapi_json_get_string_length(struct cli_bc_ctx *ctx, int32_t objid)
         return -2; /* error code for not an array */
     }
 
-    //len = json_object_get_string_len(jobj); /* not in JSON <0.10 */
+    // len = json_object_get_string_len(jobj); /* not in JSON <0.10 */
     jstr = json_object_get_string(jobj);
     len  = strlen(jstr);
 
@@ -2273,7 +2304,7 @@ int32_t cli_bcapi_json_get_string(struct cli_bc_ctx *ctx, int8_t *str, int32_t s
         return -2; /* error code for not an array */
     }
 
-    //len = json_object_get_string_len(jobj); /* not in JSON <0.10 */
+    // len = json_object_get_string_len(jobj); /* not in JSON <0.10 */
     jstr = json_object_get_string(jobj);
     len  = strlen(jstr);
 
@@ -2284,7 +2315,7 @@ int32_t cli_bcapi_json_get_string(struct cli_bc_ctx *ctx, int8_t *str, int32_t s
         return str_len;
     } else {
         /* limit on len+1 */
-        strncpy((char *)str, jstr, len);
+        memcpy((char *)str, jstr, len);
         str[len] = '\0';
         return len + 1;
     }
@@ -2342,5 +2373,5 @@ int32_t cli_bcapi_json_get_int(struct cli_bc_ctx *ctx, int32_t objid)
 #endif
 }
 
-//int64_t cli_bcapi_json_get_int64(struct cli_bc_ctx *ctx, int32_t objid);
-//double cli_bcapi_json_get_double(struct cli_bc_ctx *ctx, int32_t objid);
+// int64_t cli_bcapi_json_get_int64(struct cli_bc_ctx *ctx, int32_t objid);
+// double cli_bcapi_json_get_double(struct cli_bc_ctx *ctx, int32_t objid);

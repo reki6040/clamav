@@ -72,8 +72,16 @@ if(ENABLE_SHARED_LIB)
             ${CMAKE_CURRENT_BINARY_DIR}
         PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/mspack )
 
+    if (APPLE AND CLAMAV_SIGN_FILE)
+        set_target_properties( clammspack PROPERTIES
+            XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY ${CODE_SIGN_IDENTITY}
+            XCODE_ATTRIBUTE_DEVELOPMENT_TEAM ${DEVELOPMENT_TEAM_ID}
+        )
+    endif()
+
     if(WIN32)
         install(TARGETS clammspack DESTINATION . COMPONENT libraries)
+        install(FILES $<TARGET_PDB_FILE:clammspack> DESTINATION . OPTIONAL COMPONENT libraries)
     else()
         install(TARGETS clammspack DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT libraries)
     endif()

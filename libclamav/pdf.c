@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2007-2013 Sourcefire, Inc.
  *
  *  Authors: Nigel Horne, Török Edvin
@@ -480,12 +480,9 @@ int pdf_findobj_in_objstm(struct pdf_struct *pdf, struct objstm_struct *objstm, 
 
     /* Success! Add the object to the list of all objects found. */
     pdf->nobjs++;
-    pdf->objs = cli_realloc2(pdf->objs, sizeof(struct pdf_obj *) * pdf->nobjs);
-    if (!pdf->objs) {
-        cli_warnmsg("pdf_findobj_in_objstm: out of memory finding objects in stream\n");
-        status = CL_EMEM;
-        goto done;
-    }
+    CLI_REALLOC(pdf->objs, sizeof(struct pdf_obj *) * pdf->nobjs,
+                cli_warnmsg("pdf_findobj_in_objstm: out of memory finding objects in stream\n"),
+                status = CL_EMEM);
     pdf->objs[pdf->nobjs - 1] = obj;
 
     *obj_found = obj;
@@ -548,11 +545,7 @@ cl_error_t pdf_findobj(struct pdf_struct *pdf)
         goto done;
     }
     pdf->nobjs++;
-    pdf->objs = cli_realloc2(pdf->objs, sizeof(struct pdf_obj *) * pdf->nobjs);
-    if (!pdf->objs) {
-        status = CL_EMEM;
-        goto done;
-    }
+    CLI_REALLOC(pdf->objs, sizeof(struct pdf_obj *) * pdf->nobjs, status = CL_EMEM);
 
     obj = malloc(sizeof(struct pdf_obj));
     if (!obj) {
@@ -927,13 +920,15 @@ static size_t find_length(struct pdf_struct *pdf, struct pdf_obj *obj, const cha
     if (!index)
         return 0;
 
+    bytes_remaining -= index - obj_start;
+
     if (bytes_remaining < 1) {
         return 0;
     }
 
     /* Step the index into the "/Length" string. */
     index++;
-    bytes_remaining -= index - obj_start;
+    bytes_remaining--;
 
     /* Find the start of the next direct or indirect object.
      * pdf_nextobject() assumes we started searching from within a previous object */
@@ -1049,10 +1044,15 @@ static int run_pdf_hooks(struct pdf_struct *pdf, enum pdf_phase phase, int fd, i
 {
     int ret;
     struct cli_bc_ctx *bc_ctx;
-    cli_ctx *ctx = pdf->ctx;
+    cli_ctx *ctx = NULL;
     fmap_t *map;
 
     UNUSEDPARAM(dumpid);
+
+    if (NULL == pdf)
+        return CL_EARG;
+
+    ctx = pdf->ctx;
 
     bc_ctx = cli_bytecode_context_alloc();
     if (!bc_ctx) {
@@ -1060,12 +1060,12 @@ static int run_pdf_hooks(struct pdf_struct *pdf, enum pdf_phase phase, int fd, i
         return CL_EMEM;
     }
 
-    map = *ctx->fmap;
+    map = ctx->fmap;
     if (fd != -1) {
         map = fmap(fd, 0, 0, NULL);
         if (!map) {
             cli_dbgmsg("run_pdf_hooks: can't mmap pdf extracted obj\n");
-            map = *ctx->fmap;
+            map = ctx->fmap;
             fd  = -1;
         }
     }
@@ -1419,7 +1419,7 @@ static int pdf_scan_contents(int fd, struct pdf_struct *pdf)
     cli_writen(fout, s.out, s.out_pos);
 
     lseek(fout, 0, SEEK_SET);
-    rc = cli_magic_scan_desc(fout, fullname, pdf->ctx, NULL);
+    rc = cli_magic_scan_desc(fout, fullname, pdf->ctx, NULL, LAYER_ATTRIBUTES_NONE);
     close(fout);
 
     if (!pdf->ctx->engine->keeptmp || (s.out_pos == 0))
@@ -1431,7 +1431,6 @@ static int pdf_scan_contents(int fd, struct pdf_struct *pdf)
 
 cl_error_t pdf_extract_obj(struct pdf_struct *pdf, struct pdf_obj *obj, uint32_t flags)
 {
-    cli_ctx *ctx = pdf->ctx;
     char fullname[PATH_MAX + 1];
     int fout      = -1;
     size_t sum    = 0;
@@ -1439,6 +1438,19 @@ cl_error_t pdf_extract_obj(struct pdf_struct *pdf, struct pdf_obj *obj, uint32_t
     int dump      = 1;
 
     cli_dbgmsg("pdf_extract_obj: obj %u %u\n", obj->id >> 8, obj->id & 0xff);
+
+    if (PDF_OBJECT_RECURSION_LIMIT < pdf->parse_recursion_depth) {
+        cli_dbgmsg("pdf_extract_obj: Recursion limit reached.\n");
+        return CL_SUCCESS;
+    }
+
+    if (obj->extracted) {
+        // Should not attempt to extract the same object more than once.
+        return CL_SUCCESS;
+    }
+    // We're not done yet, but this is enough to say we've tried.
+    // Trying again won't help any.
+    obj->extracted = true;
 
     if (obj->objstm) {
         cli_dbgmsg("pdf_extract_obj: extracting obj found in objstm.\n");
@@ -1478,8 +1490,11 @@ cl_error_t pdf_extract_obj(struct pdf_struct *pdf, struct pdf_obj *obj, uint32_t
         return CL_ETMPFILE;
     }
 
-    if (!(flags & PDF_EXTRACT_OBJ_SCAN))
-        obj->path = strdup(fullname);
+    if (!(flags & PDF_EXTRACT_OBJ_SCAN)) {
+        if (NULL != obj->path) {
+            obj->path = strdup(fullname);
+        }
+    }
 
     if ((NULL == obj->objstm) &&
         (obj->flags & (1 << OBJ_STREAM))) {
@@ -1583,10 +1598,13 @@ cl_error_t pdf_extract_obj(struct pdf_struct *pdf, struct pdf_obj *obj, uint32_t
                 dict_len--;
             }
 
-            if (dict_len > 4)
+            if (dict_len > 4) {
+                pdf->parse_recursion_depth++;
                 dparams = pdf_parse_dict(pdf, obj, obj->size, (char *)pstr, NULL);
-            else
+                pdf->parse_recursion_depth--;
+            } else {
                 cli_dbgmsg("pdf_extract_obj: failed to locate DecodeParms dictionary start\n");
+            }
         }
 
         /*
@@ -1648,7 +1666,7 @@ cl_error_t pdf_extract_obj(struct pdf_struct *pdf, struct pdf_obj *obj, uint32_t
              *   make a best effort to keep parsing...
              *   Unless we were unable to allocate memory.*/
             if (CL_EMEM == rc) {
-                goto err;
+                goto really_done;
             }
             if (CL_EPARSE == rc) {
                 rc = CL_SUCCESS;
@@ -1694,7 +1712,7 @@ cl_error_t pdf_extract_obj(struct pdf_struct *pdf, struct pdf_obj *obj, uint32_t
         if (dparams)
             pdf_free_dict(dparams);
 
-        if ((rc == CL_VIRUS) && !SCAN_ALLMATCHES) {
+        if (rc == CL_VIRUS) {
             sum = 0; /* prevents post-filter scan */
             goto done;
         }
@@ -1812,38 +1830,40 @@ done:
     if (flags & PDF_EXTRACT_OBJ_SCAN && sum) {
         int rc2;
 
-        cli_updatelimits(pdf->ctx, sum);
-
         /* TODO: invoke bytecode on this pdf obj with metainformation associated */
         lseek(fout, 0, SEEK_SET);
-        rc2 = cli_magic_scan_desc(fout, fullname, pdf->ctx, NULL);
-        if (rc2 == CL_VIRUS || rc == CL_SUCCESS)
+        rc2 = cli_magic_scan_desc(fout, fullname, pdf->ctx, NULL, LAYER_ATTRIBUTES_NONE);
+        if (rc2 != CL_SUCCESS) {
             rc = rc2;
+            goto really_done;
+        }
 
-        if ((rc == CL_CLEAN) || ((rc == CL_VIRUS) && SCAN_ALLMATCHES)) {
+        if ((rc == CL_CLEAN) || (rc == CL_VIRUS)) {
             unsigned int dumpid = 0;
             for (dumpid = 0; dumpid < pdf->nobjs; dumpid++) {
                 if (pdf->objs[dumpid] == obj)
                     break;
             }
             rc2 = run_pdf_hooks(pdf, PDF_PHASE_POSTDUMP, fout, dumpid);
-            if (rc2 == CL_VIRUS)
+            if (rc2 == CL_VIRUS) {
                 rc = rc2;
+                goto really_done;
+            }
         }
 
-        if (((rc == CL_CLEAN) || ((rc == CL_VIRUS) && SCAN_ALLMATCHES)) && (obj->flags & (1 << OBJ_CONTENTS))) {
+        if (((rc == CL_CLEAN) || (rc == CL_VIRUS)) && (obj->flags & (1 << OBJ_CONTENTS))) {
             lseek(fout, 0, SEEK_SET);
-            cli_dbgmsg("pdf_extract_obj: dumping contents %u %u\n", obj->id >> 8, obj->id & 0xff);
+            cli_dbgmsg("pdf_extract_obj: dumping contents from obj %u %u\n", obj->id >> 8, obj->id & 0xff);
 
             rc2 = pdf_scan_contents(fout, pdf);
-            if (rc2 == CL_VIRUS)
+            if (rc2 != CL_SUCCESS) {
                 rc = rc2;
-
-            noisy_msg(pdf, "pdf_extract_obj: extracted text from obj %u %u\n", obj->id >> 8, obj->id & 0xff);
+                goto really_done;
+            }
         }
     }
 
-err:
+really_done:
     close(fout);
 
     if (CL_EMEM != rc) {
@@ -2910,7 +2930,7 @@ static void check_user_password(struct pdf_struct *pdf, int R, const char *O,
             size_t UE_len;
 
             compute_hash_r6(password, pwlen, (const unsigned char *)(U + 40), hash);
-            UE_len = UE ? strlen(UE) : 0;
+            UE_len = strlen(UE);
             if (UE_len != 32) {
                 cli_dbgmsg("check_user_password: UE length is not 32: %zu\n", UE_len);
                 noisy_warnmsg("check_user_password: UE length is not 32: %zu\n", UE_len);
@@ -3101,7 +3121,8 @@ void pdf_handle_enc(struct pdf_struct *pdf)
     }
 
     len = obj->size;
-    q   = (obj->objstm) ? (const char *)(obj->start + obj->objstm->streambuf)
+
+    q = (obj->objstm) ? (const char *)(obj->start + obj->objstm->streambuf)
                       : (const char *)(obj->start + pdf->map);
 
     O = U = UE = StmF = StrF = EFF = NULL;
@@ -3119,9 +3140,9 @@ void pdf_handle_enc(struct pdf_struct *pdf)
         }
 
         /* we can have both of these:
-        * /AESV2/Length /Standard/Length
-        * /Length /Standard
-        * make sure we don't mistake AES's length for Standard's */
+         * /AESV2/Length /Standard/Length
+         * /Length /Standard
+         * make sure we don't mistake AES's length for Standard's */
         length = pdf_readint(q2, len - (q2 - q), "/Length");
         if (length == ~0u)
             length = pdf_readint(q, len, "/Length");
@@ -3272,7 +3293,6 @@ cl_error_t pdf_find_and_parse_objs_in_objstm(struct pdf_struct *pdf, struct objs
 {
     cl_error_t status   = CL_EFORMAT;
     cl_error_t retval   = CL_EPARSE;
-    int32_t alerts      = 0;
     uint32_t badobjects = 0;
     size_t i            = 0;
 
@@ -3300,7 +3320,7 @@ cl_error_t pdf_find_and_parse_objs_in_objstm(struct pdf_struct *pdf, struct objs
         obj = NULL;
 
         if (cli_checktimelimit(pdf->ctx) != CL_SUCCESS) {
-            cli_errmsg("Timeout reached in the PDF parser while parsing object stream.\n");
+            cli_dbgmsg("Timeout reached in the PDF parser while parsing object stream.\n");
             status = CL_ETIMEOUT;
             goto done;
         }
@@ -3320,7 +3340,7 @@ cl_error_t pdf_find_and_parse_objs_in_objstm(struct pdf_struct *pdf, struct objs
         cli_dbgmsg("pdf_find_and_parse_objs_in_objstm: Found object %u %u in object stream at offset: %u\n", obj->id >> 8, obj->id & 0xff, obj->start);
 
         if (cli_checktimelimit(pdf->ctx) != CL_SUCCESS) {
-            cli_errmsg("Timeout reached in the PDF parser while parsing object stream.\n");
+            cli_dbgmsg("Timeout reached in the PDF parser while parsing object stream.\n");
             status = CL_ETIMEOUT;
             goto done;
         }
@@ -3329,10 +3349,7 @@ cl_error_t pdf_find_and_parse_objs_in_objstm(struct pdf_struct *pdf, struct objs
         pdf_parseobj(pdf, obj);
     }
 
-    if (alerts) {
-        status = CL_VIRUS;
-        goto done;
-    } else if (badobjects) {
+    if (badobjects) {
         status = CL_EFORMAT;
         goto done;
     }
@@ -3347,11 +3364,10 @@ done:
  * @brief Search pdf buffer for objects.  Parse each and then extract each.
  *
  * @param pdf               Pdf struct that keeps track of all information found in the PDF.
- * @param[in,out] alerts    The number of alerts, relevant in ALLMATCH mode.
  *
  * @return cl_error_t       Error code.
  */
-cl_error_t pdf_find_and_extract_objs(struct pdf_struct *pdf, uint32_t *alerts)
+static cl_error_t pdf_find_and_extract_objs(struct pdf_struct *pdf)
 {
     cl_error_t status   = CL_SUCCESS;
     int32_t rv          = 0;
@@ -3359,7 +3375,7 @@ cl_error_t pdf_find_and_extract_objs(struct pdf_struct *pdf, uint32_t *alerts)
     uint32_t badobjects = 0;
     cli_ctx *ctx        = NULL;
 
-    if (NULL == pdf || NULL == alerts) {
+    if (NULL == pdf) {
         cli_errmsg("pdf_find_and_extract_objs: Invalid arguments.\n");
         status = CL_EARG;
         goto done;
@@ -3381,7 +3397,7 @@ cl_error_t pdf_find_and_extract_objs(struct pdf_struct *pdf, uint32_t *alerts)
         struct pdf_obj *obj = pdf->objs[i];
 
         if (cli_checktimelimit(pdf->ctx) != CL_SUCCESS) {
-            cli_errmsg("pdf_find_and_extract_objs: Timeout reached in the PDF parser while parsing objects.\n");
+            cli_dbgmsg("pdf_find_and_extract_objs: Timeout reached in the PDF parser while parsing objects.\n");
 
             status = CL_ETIMEOUT;
             goto done;
@@ -3401,53 +3417,42 @@ cl_error_t pdf_find_and_extract_objs(struct pdf_struct *pdf, uint32_t *alerts)
         /* It is encrypted, and a password/key needs to be supplied to decrypt.
          * This doesn't trigger for PDFs that are encrypted but don't need
          * a password to decrypt */
-        status = cli_append_virus(pdf->ctx, "Heuristics.Encrypted.PDF");
-        if (status == CL_VIRUS) {
-            *alerts += 1;
-            if (SCAN_ALLMATCHES)
-                status = CL_CLEAN;
-        }
+        status = cli_append_potentially_unwanted(pdf->ctx, "Heuristics.Encrypted.PDF");
     }
 
     if (CL_SUCCESS == status) {
         status = run_pdf_hooks(pdf, PDF_PHASE_PARSED, -1, -1);
         cli_dbgmsg("pdf_find_and_extract_objs: (parsed hooks) returned %d\n", status);
-        if (status == CL_VIRUS) {
-            *alerts += 1;
-            if (SCAN_ALLMATCHES) {
-                status = CL_CLEAN;
-            }
-        }
     }
 
-    /* extract PDF objs */
-    for (i = 0; !status && i < pdf->nobjs; i++) {
-        struct pdf_obj *obj = pdf->objs[i];
+    if (CL_SUCCESS == status) {
+        /* extract PDF objs */
+        for (i = 0; !status && i < pdf->nobjs; i++) {
+            struct pdf_obj *obj = pdf->objs[i];
 
-        if (cli_checktimelimit(pdf->ctx) != CL_SUCCESS) {
-            cli_errmsg("pdf_find_and_extract_objs: Timeout reached in the PDF parser while extracting objects.\n");
+            if (cli_checktimelimit(pdf->ctx) != CL_SUCCESS) {
+                cli_dbgmsg("pdf_find_and_extract_objs: Timeout reached in the PDF parser while extracting objects.\n");
 
-            status = CL_ETIMEOUT;
-            goto done;
-        }
+                status = CL_ETIMEOUT;
+                goto done;
+            }
 
-        status = pdf_extract_obj(pdf, obj, PDF_EXTRACT_OBJ_SCAN);
-        switch (status) {
-            case CL_EFORMAT:
-                /* Don't halt on one bad object */
-                cli_dbgmsg("pdf_find_and_extract_objs: Format error when extracting object, skipping to the next object.\n");
-                badobjects++;
-                pdf->stats.ninvalidobjs++;
-                status = CL_CLEAN;
-                break;
-            case CL_VIRUS:
-                *alerts += 1;
-                if (SCAN_ALLMATCHES) {
+            pdf->parse_recursion_depth++;
+            status = pdf_extract_obj(pdf, obj, PDF_EXTRACT_OBJ_SCAN);
+            pdf->parse_recursion_depth--;
+            switch (status) {
+                case CL_EFORMAT:
+                    /* Don't halt on one bad object */
+                    cli_dbgmsg("pdf_find_and_extract_objs: Format error when extracting object, skipping to the next object.\n");
+                    badobjects++;
+                    pdf->stats.ninvalidobjs++;
                     status = CL_CLEAN;
-                }
-                break;
-            default:
-                break;
+                    break;
+                case CL_VIRUS:
+                    break;
+                default:
+                    break;
+            }
         }
     }
 
@@ -3472,14 +3477,14 @@ cl_error_t cli_pdf(const char *dir, cli_ctx *ctx, off_t offset)
 {
     cl_error_t rc = CL_SUCCESS;
     struct pdf_struct pdf;
-    fmap_t *map   = *ctx->fmap;
+    fmap_t *map   = ctx->fmap;
     size_t size   = map->len - offset;
     off_t versize = size > 1032 ? 1032 : size;
     off_t map_off, bytesleft;
     unsigned long xref;
     long temp_long;
     const char *pdfver, *tmp, *start, *eofmap, *q, *eof;
-    unsigned i, alerts = 0;
+    unsigned i;
     unsigned int objs_found = 0;
 #if HAVE_JSON
     json_object *pdfobj = NULL;
@@ -3511,9 +3516,7 @@ cl_error_t cli_pdf(const char *dir, cli_ctx *ctx, off_t offset)
     if (!tmp) {
         cli_dbgmsg("cli_pdf: no PDF- header found\n");
         noisy_warnmsg("cli_pdf: no PDF- header found\n");
-#if HAVE_JSON
-        pdf_export_json(&pdf);
-#endif
+
         rc = CL_SUCCESS;
         goto done;
     }
@@ -3655,11 +3658,7 @@ cl_error_t cli_pdf(const char *dir, cli_ctx *ctx, off_t offset)
     pdf.startoff = offset;
 
     rc = run_pdf_hooks(&pdf, PDF_PHASE_PRE, -1, -1);
-    if ((rc == CL_VIRUS) && SCAN_ALLMATCHES) {
-        cli_dbgmsg("cli_pdf: (pre hooks) returned %d\n", rc);
-        alerts++;
-        rc = CL_CLEAN;
-    } else if (rc) {
+    if (CL_SUCCESS != rc) {
         cli_dbgmsg("cli_pdf: (pre hooks) returning %d\n", rc);
 
         rc = rc == CL_BREAK ? CL_CLEAN : rc;
@@ -3671,7 +3670,7 @@ cl_error_t cli_pdf(const char *dir, cli_ctx *ctx, off_t offset)
      * This methodology adds objects from object streams.
      */
     objs_found = pdf.nobjs;
-    rc         = pdf_find_and_extract_objs(&pdf, &alerts);
+    rc         = pdf_find_and_extract_objs(&pdf);
 
     if (CL_EMEM == rc) {
         cli_dbgmsg("cli_pdf: pdf_find_and_extract_objs had an allocation failure\n");
@@ -3685,20 +3684,14 @@ cl_error_t cli_pdf(const char *dir, cli_ctx *ctx, off_t offset)
     if (pdf.flags & (1 << ENCRYPTED_PDF))
         pdf.flags &= ~((1 << BAD_FLATESTART) | (1 << BAD_STREAMSTART) | (1 << BAD_ASCIIDECODE));
 
-    if (pdf.flags && !rc) {
+    if (pdf.flags && CL_SUCCESS == rc) {
         cli_dbgmsg("cli_pdf: flags 0x%02x\n", pdf.flags);
         rc = run_pdf_hooks(&pdf, PDF_PHASE_END, -1, -1);
-        if (rc == CL_VIRUS) {
-            alerts++;
-            if (SCAN_ALLMATCHES) {
-                rc = CL_CLEAN;
-            }
-        }
 
-        if (!rc && SCAN_HEURISTICS && (ctx->dconf->other & OTHER_CONF_PDFNAMEOBJ)) {
+        if (CL_SUCCESS == rc && SCAN_HEURISTICS && (ctx->dconf->other & OTHER_CONF_PDFNAMEOBJ)) {
             if (pdf.flags & (1 << ESCAPED_COMMON_PDFNAME)) {
                 /* for example /Fl#61te#44#65#63#6f#64#65 instead of /FlateDecode */
-                cli_append_possibly_unwanted(ctx, "Heuristics.PDF.ObfuscatedNameObject");
+                rc = cli_append_potentially_unwanted(ctx, "Heuristics.PDF.ObfuscatedNameObject");
             }
         }
 #if 0
@@ -3707,7 +3700,7 @@ cl_error_t cli_pdf(const char *dir, cli_ctx *ctx, off_t offset)
         pdf.flags &= ~ (1 << BAD_ASCIIDECODE);
     if (pdf.flags & (1 << MANY_FILTERS))
         pdf.flags &= ~ (1 << BAD_ASCIIDECODE);
-    if (!rc && (pdf.flags &
+    if (CL_SUCCESS == rc && (pdf.flags &
         ((1 << BAD_PDF_TOOMANYOBJS) | (1 << BAD_STREAM_FILTERS) |
          (1<<BAD_FLATE) | (1<<BAD_ASCIIDECODE)|
              (1<<UNTERMINATED_OBJ_DICT) | (1<<UNKNOWN_FILTER)))) {
@@ -3717,17 +3710,16 @@ cl_error_t cli_pdf(const char *dir, cli_ctx *ctx, off_t offset)
     }
 
 done:
-    if (alerts) {
-        rc = CL_VIRUS;
-    } else if (!rc && pdf.stats.ninvalidobjs > 0) {
+    if (CL_SUCCESS == rc && pdf.stats.ninvalidobjs > 0) {
         rc = CL_EFORMAT;
     }
+
+err:
 
 #if HAVE_JSON
     pdf_export_json(&pdf);
 #endif
 
-err:
     if (pdf.objstms) {
         for (i = 0; i < pdf.nobjstms; i++) {
             if (pdf.objstms[i]) {
@@ -3746,6 +3738,10 @@ err:
     if (NULL != pdf.objs) {
         for (i = 0; i < pdf.nobjs; i++) {
             if (NULL != pdf.objs[i]) {
+                if (NULL != pdf.objs[i]->path) {
+                    free(pdf.objs[i]->path);
+                    pdf.objs[i]->path = NULL;
+                }
                 free(pdf.objs[i]);
                 pdf.objs[i] = NULL;
             }
@@ -3868,7 +3864,7 @@ static void ASCIIHexDecode_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struc
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.nasciihexdecode++;
@@ -3881,7 +3877,7 @@ static void ASCII85Decode_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.nascii85decode++;
@@ -3894,7 +3890,7 @@ static void EmbeddedFile_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct 
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.nembeddedfile++;
@@ -3907,7 +3903,7 @@ static void FlateDecode_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct p
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.nflate++;
@@ -3920,7 +3916,7 @@ static void Image_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.nimage++;
@@ -3933,7 +3929,7 @@ static void LZWDecode_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdf
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.nlzw++;
@@ -3946,7 +3942,7 @@ static void RunLengthDecode_cb(struct pdf_struct *pdf, struct pdf_obj *obj, stru
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.nrunlengthdecode++;
@@ -3959,7 +3955,7 @@ static void CCITTFaxDecode_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struc
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.nfaxdecode++;
@@ -3969,14 +3965,16 @@ static void CCITTFaxDecode_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struc
 #if HAVE_JSON
 static void JBIG2Decode_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname_action *act)
 {
-    cli_ctx *ctx = pdf->ctx;
+    cli_ctx *ctx = NULL;
     struct json_object *pdfobj, *jbig2arr;
 
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
+
+    ctx = pdf->ctx;
 
     if (!(SCAN_COLLECT_METADATA))
         return;
@@ -4004,7 +4002,7 @@ static void DCTDecode_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdf
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.ndctdecode++;
@@ -4017,7 +4015,7 @@ static void JPXDecode_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdf
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.njpxdecode++;
@@ -4030,7 +4028,7 @@ static void Crypt_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.ncrypt++;
@@ -4043,7 +4041,7 @@ static void Standard_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfn
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.nstandard++;
@@ -4056,7 +4054,7 @@ static void Sig_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname_a
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.nsigned++;
@@ -4085,7 +4083,7 @@ static void OpenAction_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pd
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.nopenaction++;
@@ -4098,7 +4096,7 @@ static void Launch_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfnam
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.nlaunch++;
@@ -4111,7 +4109,7 @@ static void Page_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname_
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.npage++;
@@ -4121,12 +4119,14 @@ static void Page_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname_
 #if HAVE_JSON
 static void Author_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname_action *act)
 {
-    cli_ctx *ctx = pdf->ctx;
+    cli_ctx *ctx = NULL;
 
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
+
+    ctx = pdf->ctx;
 
     if (!(SCAN_COLLECT_METADATA))
         return;
@@ -4138,7 +4138,10 @@ static void Author_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfnam
         pdf->stats.author = cli_calloc(1, sizeof(struct pdf_stats_entry));
         if (!(pdf->stats.author))
             return;
+
+        pdf->parse_recursion_depth++;
         pdf->stats.author->data = pdf_parse_string(pdf, obj, objstart, obj->size, "/Author", NULL, &(pdf->stats.author->meta));
+        pdf->parse_recursion_depth--;
     }
 }
 #endif
@@ -4146,12 +4149,14 @@ static void Author_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfnam
 #if HAVE_JSON
 static void Creator_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname_action *act)
 {
-    cli_ctx *ctx = pdf->ctx;
+    cli_ctx *ctx = NULL;
 
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
+
+    ctx = pdf->ctx;
 
     if (!(SCAN_COLLECT_METADATA))
         return;
@@ -4163,7 +4168,10 @@ static void Creator_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfna
         pdf->stats.creator = cli_calloc(1, sizeof(struct pdf_stats_entry));
         if (!(pdf->stats.creator))
             return;
+
+        pdf->parse_recursion_depth++;
         pdf->stats.creator->data = pdf_parse_string(pdf, obj, objstart, obj->size, "/Creator", NULL, &(pdf->stats.creator->meta));
+        pdf->parse_recursion_depth--;
     }
 }
 #endif
@@ -4171,12 +4179,14 @@ static void Creator_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfna
 #if HAVE_JSON
 static void ModificationDate_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname_action *act)
 {
-    cli_ctx *ctx = pdf->ctx;
+    cli_ctx *ctx = NULL;
 
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
+
+    ctx = pdf->ctx;
 
     if (!(SCAN_COLLECT_METADATA))
         return;
@@ -4188,7 +4198,10 @@ static void ModificationDate_cb(struct pdf_struct *pdf, struct pdf_obj *obj, str
         pdf->stats.modificationdate = cli_calloc(1, sizeof(struct pdf_stats_entry));
         if (!(pdf->stats.modificationdate))
             return;
+
+        pdf->parse_recursion_depth++;
         pdf->stats.modificationdate->data = pdf_parse_string(pdf, obj, objstart, obj->size, "/ModDate", NULL, &(pdf->stats.modificationdate->meta));
+        pdf->parse_recursion_depth--;
     }
 }
 #endif
@@ -4196,12 +4209,14 @@ static void ModificationDate_cb(struct pdf_struct *pdf, struct pdf_obj *obj, str
 #if HAVE_JSON
 static void CreationDate_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname_action *act)
 {
-    cli_ctx *ctx = pdf->ctx;
+    cli_ctx *ctx = NULL;
 
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
+
+    ctx = pdf->ctx;
 
     if (!(SCAN_COLLECT_METADATA))
         return;
@@ -4213,7 +4228,10 @@ static void CreationDate_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct 
         pdf->stats.creationdate = cli_calloc(1, sizeof(struct pdf_stats_entry));
         if (!(pdf->stats.creationdate))
             return;
+
+        pdf->parse_recursion_depth++;
         pdf->stats.creationdate->data = pdf_parse_string(pdf, obj, objstart, obj->size, "/CreationDate", NULL, &(pdf->stats.creationdate->meta));
+        pdf->parse_recursion_depth--;
     }
 }
 #endif
@@ -4221,12 +4239,14 @@ static void CreationDate_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct 
 #if HAVE_JSON
 static void Producer_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname_action *act)
 {
-    cli_ctx *ctx = pdf->ctx;
+    cli_ctx *ctx = NULL;
 
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
+
+    ctx = pdf->ctx;
 
     if (!(SCAN_COLLECT_METADATA))
         return;
@@ -4238,7 +4258,10 @@ static void Producer_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfn
         pdf->stats.producer = cli_calloc(1, sizeof(struct pdf_stats_entry));
         if (!(pdf->stats.producer))
             return;
+
+        pdf->parse_recursion_depth++;
         pdf->stats.producer->data = pdf_parse_string(pdf, obj, objstart, obj->size, "/Producer", NULL, &(pdf->stats.producer->meta));
+        pdf->parse_recursion_depth--;
     }
 }
 #endif
@@ -4246,12 +4269,14 @@ static void Producer_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfn
 #if HAVE_JSON
 static void Title_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname_action *act)
 {
-    cli_ctx *ctx = pdf->ctx;
+    cli_ctx *ctx = NULL;
 
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
+
+    ctx = pdf->ctx;
 
     if (!(SCAN_COLLECT_METADATA))
         return;
@@ -4263,7 +4288,10 @@ static void Title_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname
         pdf->stats.title = cli_calloc(1, sizeof(struct pdf_stats_entry));
         if (!(pdf->stats.title))
             return;
+
+        pdf->parse_recursion_depth++;
         pdf->stats.title->data = pdf_parse_string(pdf, obj, objstart, obj->size, "/Title", NULL, &(pdf->stats.title->meta));
+        pdf->parse_recursion_depth--;
     }
 }
 #endif
@@ -4271,12 +4299,14 @@ static void Title_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname
 #if HAVE_JSON
 static void Keywords_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname_action *act)
 {
-    cli_ctx *ctx = pdf->ctx;
+    cli_ctx *ctx = NULL;
 
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
+
+    ctx = pdf->ctx;
 
     if (!(SCAN_COLLECT_METADATA))
         return;
@@ -4288,7 +4318,10 @@ static void Keywords_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfn
         pdf->stats.keywords = cli_calloc(1, sizeof(struct pdf_stats_entry));
         if (!(pdf->stats.keywords))
             return;
+
+        pdf->parse_recursion_depth++;
         pdf->stats.keywords->data = pdf_parse_string(pdf, obj, objstart, obj->size, "/Keywords", NULL, &(pdf->stats.keywords->meta));
+        pdf->parse_recursion_depth--;
     }
 }
 #endif
@@ -4296,12 +4329,14 @@ static void Keywords_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfn
 #if HAVE_JSON
 static void Subject_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname_action *act)
 {
-    cli_ctx *ctx = pdf->ctx;
+    cli_ctx *ctx = NULL;
 
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
+
+    ctx = pdf->ctx;
 
     if (!(SCAN_COLLECT_METADATA))
         return;
@@ -4313,7 +4348,10 @@ static void Subject_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfna
         pdf->stats.subject = cli_calloc(1, sizeof(struct pdf_stats_entry));
         if (!(pdf->stats.subject))
             return;
+
+        pdf->parse_recursion_depth++;
         pdf->stats.subject->data = pdf_parse_string(pdf, obj, objstart, obj->size, "/Subject", NULL, &(pdf->stats.subject->meta));
+        pdf->parse_recursion_depth--;
     }
 }
 #endif
@@ -4324,7 +4362,7 @@ static void RichMedia_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdf
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.nrichmedia++;
@@ -4337,7 +4375,7 @@ static void AcroForm_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfn
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.nacroform++;
@@ -4350,7 +4388,7 @@ static void XFA_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname_a
     UNUSEDPARAM(obj);
     UNUSEDPARAM(act);
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     pdf->stats.nxfa++;
@@ -4360,7 +4398,7 @@ static void XFA_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname_a
 #if HAVE_JSON
 static void Pages_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname_action *act)
 {
-    cli_ctx *ctx = pdf->ctx;
+    cli_ctx *ctx = NULL;
     struct pdf_array *array;
     const char *objstart = (obj->objstm) ? (const char *)(obj->start + obj->objstm->streambuf)
                                          : (const char *)(obj->start + pdf->map);
@@ -4376,6 +4414,8 @@ static void Pages_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname
     if (!(pdf) || !(pdf->ctx->wrkproperty))
         return;
 
+    ctx = pdf->ctx;
+
     if (!(SCAN_COLLECT_METADATA))
         return;
 
@@ -4389,7 +4429,10 @@ static void Pages_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname
 
     begin += 5;
 
+    pdf->parse_recursion_depth++;
     array = pdf_parse_array(pdf, obj, obj->size, (char *)begin, NULL);
+    pdf->parse_recursion_depth--;
+
     if (!(array)) {
         cli_jsonbool(pdfobj, "IncorrectPagesCount", 1);
         return;
@@ -4436,7 +4479,7 @@ cleanup:
 #if HAVE_JSON
 static void Colors_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfname_action *act)
 {
-    cli_ctx *ctx = pdf->ctx;
+    cli_ctx *ctx = NULL;
     json_object *colorsobj, *pdfobj;
     unsigned long ncolors;
     long temp_long;
@@ -4448,6 +4491,8 @@ static void Colors_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfnam
 
     if (!(pdf) || !(pdf->ctx) || !(pdf->ctx->wrkproperty))
         return;
+
+    ctx = pdf->ctx;
 
     if (!(SCAN_COLLECT_METADATA))
         return;
@@ -4492,18 +4537,86 @@ static void Colors_cb(struct pdf_struct *pdf, struct pdf_obj *obj, struct pdfnam
 #endif
 
 #if HAVE_JSON
+static void pdf_free_stats(struct pdf_struct *pdf)
+{
+
+    if (!pdf) {
+        return;
+    }
+
+    if ((pdf->stats.author)) {
+        if (pdf->stats.author->data)
+            free(pdf->stats.author->data);
+        free(pdf->stats.author);
+        pdf->stats.author = NULL;
+    }
+
+    if (pdf->stats.creator) {
+        if (pdf->stats.creator->data)
+            free(pdf->stats.creator->data);
+        free(pdf->stats.creator);
+        pdf->stats.creator = NULL;
+    }
+
+    if (pdf->stats.producer) {
+        if (pdf->stats.producer->data)
+            free(pdf->stats.producer->data);
+        free(pdf->stats.producer);
+        pdf->stats.producer = NULL;
+    }
+
+    if (pdf->stats.modificationdate) {
+        if (pdf->stats.modificationdate->data)
+            free(pdf->stats.modificationdate->data);
+        free(pdf->stats.modificationdate);
+        pdf->stats.modificationdate = NULL;
+    }
+
+    if (pdf->stats.creationdate) {
+        if (pdf->stats.creationdate->data)
+            free(pdf->stats.creationdate->data);
+        free(pdf->stats.creationdate);
+        pdf->stats.creationdate = NULL;
+    }
+
+    if (pdf->stats.title) {
+        if (pdf->stats.title->data)
+            free(pdf->stats.title->data);
+        free(pdf->stats.title);
+        pdf->stats.title = NULL;
+    }
+
+    if (pdf->stats.subject) {
+        if (pdf->stats.subject->data)
+            free(pdf->stats.subject->data);
+        free(pdf->stats.subject);
+        pdf->stats.subject = NULL;
+    }
+
+    if (pdf->stats.keywords) {
+        if (pdf->stats.keywords->data)
+            free(pdf->stats.keywords->data);
+        free(pdf->stats.keywords);
+        pdf->stats.keywords = NULL;
+    }
+}
+#endif
+
+#if HAVE_JSON
 static void pdf_export_json(struct pdf_struct *pdf)
 {
-    cli_ctx *ctx = pdf->ctx;
+    cli_ctx *ctx = NULL;
     json_object *pdfobj;
     unsigned long i;
 
-    if (!(pdf))
+    if (NULL == pdf)
         return;
 
     if (!(pdf->ctx)) {
         goto cleanup;
     }
+
+    ctx = pdf->ctx;
 
     if (!(SCAN_COLLECT_METADATA) || !(pdf->ctx->wrkproperty)) {
         goto cleanup;
@@ -4769,60 +4882,6 @@ static void pdf_export_json(struct pdf_struct *pdf)
     }
 
 cleanup:
-    if ((pdf->stats.author)) {
-        if (pdf->stats.author->data)
-            free(pdf->stats.author->data);
-        free(pdf->stats.author);
-        pdf->stats.author = NULL;
-    }
-
-    if (pdf->stats.creator) {
-        if (pdf->stats.creator->data)
-            free(pdf->stats.creator->data);
-        free(pdf->stats.creator);
-        pdf->stats.creator = NULL;
-    }
-
-    if (pdf->stats.producer) {
-        if (pdf->stats.producer->data)
-            free(pdf->stats.producer->data);
-        free(pdf->stats.producer);
-        pdf->stats.producer = NULL;
-    }
-
-    if (pdf->stats.modificationdate) {
-        if (pdf->stats.modificationdate->data)
-            free(pdf->stats.modificationdate->data);
-        free(pdf->stats.modificationdate);
-        pdf->stats.modificationdate = NULL;
-    }
-
-    if (pdf->stats.creationdate) {
-        if (pdf->stats.creationdate->data)
-            free(pdf->stats.creationdate->data);
-        free(pdf->stats.creationdate);
-        pdf->stats.creationdate = NULL;
-    }
-
-    if (pdf->stats.title) {
-        if (pdf->stats.title->data)
-            free(pdf->stats.title->data);
-        free(pdf->stats.title);
-        pdf->stats.title = NULL;
-    }
-
-    if (pdf->stats.subject) {
-        if (pdf->stats.subject->data)
-            free(pdf->stats.subject->data);
-        free(pdf->stats.subject);
-        pdf->stats.subject = NULL;
-    }
-
-    if (pdf->stats.keywords) {
-        if (pdf->stats.keywords->data)
-            free(pdf->stats.keywords->data);
-        free(pdf->stats.keywords);
-        pdf->stats.keywords = NULL;
-    }
+    pdf_free_stats(pdf);
 }
 #endif

@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2007-2013 Sourcefire, Inc.
  *
  *  Authors: Tomasz Kojm, Trog
@@ -61,9 +61,11 @@
 #include "matcher-ac.h"
 #include "str.h"
 #include "entconv.h"
+#include "clamav_rust.h"
 
 #define MSGBUFSIZ 8192
 
+static bool rand_seeded            = false;
 static unsigned char name_salt[16] = {16, 38, 97, 12, 8, 4, 72, 196, 217, 144, 33, 124, 18, 11, 17, 253};
 
 #ifdef CL_THREAD_SAFE
@@ -121,15 +123,15 @@ void cli_logg_unsetup(void)
 uint8_t cli_debug_flag              = 0;
 uint8_t cli_always_gen_section_hash = 0;
 
-static void fputs_callback(enum cl_msg severity, const char *fullmsg, const char *msg, void *context)
+static void clrs_eprint_callback(enum cl_msg severity, const char *fullmsg, const char *msg, void *context)
 {
     UNUSEDPARAM(severity);
     UNUSEDPARAM(msg);
     UNUSEDPARAM(context);
-    fputs(fullmsg, stderr);
+    clrs_eprint(fullmsg);
 }
 
-static clcb_msg msg_callback = fputs_callback;
+static clcb_msg msg_callback = clrs_eprint_callback;
 
 void cl_set_clcb_msg(clcb_msg callback)
 {
@@ -140,10 +142,9 @@ void cl_set_clcb_msg(clcb_msg callback)
     va_list args;                                         \
     size_t len = sizeof(x) - 1;                           \
     char buff[MSGBUFSIZ];                                 \
-    strncpy(buff, x, len);                                \
+    memcpy(buff, x, len);                                 \
     va_start(args, str);                                  \
     vsnprintf(buff + len, sizeof(buff) - len, str, args); \
-    buff[sizeof(buff) - 1] = '\0';                        \
     va_end(args)
 
 void cli_warnmsg(const char *str, ...)
@@ -164,10 +165,40 @@ void cli_infomsg(const cli_ctx *ctx, const char *str, ...)
     msg_callback(CL_MSG_INFO_VERBOSE, buff, buff + len, ctx ? ctx->cb_ctx : NULL);
 }
 
-void cli_dbgmsg_internal(const char *str, ...)
+/* intended for logging in rust modules */
+void cli_infomsg_simple(const char *str, ...)
 {
-    MSGCODE(buff, len, "LibClamAV debug: ");
-    fputs(buff, stderr);
+    MSGCODE(buff, len, "LibClamAV info: ");
+    msg_callback(CL_MSG_INFO_VERBOSE, buff, buff + len, NULL);
+}
+
+inline void cli_dbgmsg(const char *str, ...)
+{
+    if (UNLIKELY(cli_get_debug_flag())) {
+        MSGCODE(buff, len, "LibClamAV debug: ");
+        clrs_eprint(buff);
+    }
+}
+
+void cli_dbgmsg_no_inline(const char *str, ...)
+{
+    if (UNLIKELY(cli_get_debug_flag())) {
+        MSGCODE(buff, len, "LibClamAV debug: ");
+        clrs_eprint(buff);
+    }
+}
+
+size_t cli_eprintf(const char *str, ...)
+{
+    size_t bytes_written = 0;
+    va_list args;
+    char buff[MSGBUFSIZ];
+    va_start(args, str);
+    bytes_written = vsnprintf(buff, sizeof(buff), str, args);
+    va_end(args);
+    clrs_eprint(buff);
+
+    return bytes_written;
 }
 
 int cli_matchregex(const char *str, const char *regex)
@@ -190,7 +221,9 @@ void *cli_malloc(size_t size)
     void *alloc;
 
     if (!size || size > CLI_MAX_ALLOCATION) {
-        cli_errmsg("cli_malloc(): Attempt to allocate %lu bytes. Please report to https://github.com/Cisco-Talos/clamav/issues\n", (unsigned long int)size);
+        cli_warnmsg("cli_malloc(): File or section is too large to scan (%zu bytes). \
+                     For your safety, ClamAV limits how much memory an operation can allocate to %d bytes\n",
+                    size, CLI_MAX_ALLOCATION);
         return NULL;
     }
 
@@ -198,7 +231,7 @@ void *cli_malloc(size_t size)
 
     if (!alloc) {
         perror("malloc_problem");
-        cli_errmsg("cli_malloc(): Can't allocate memory (%lu bytes).\n", (unsigned long int)size);
+        cli_errmsg("cli_malloc(): Can't allocate memory (%zu bytes).\n", size);
         return NULL;
     } else
         return alloc;
@@ -209,7 +242,9 @@ void *cli_calloc(size_t nmemb, size_t size)
     void *alloc;
 
     if (!nmemb || !size || size > CLI_MAX_ALLOCATION || nmemb > CLI_MAX_ALLOCATION || (nmemb * size > CLI_MAX_ALLOCATION)) {
-        cli_errmsg("cli_calloc(): Attempt to allocate %lu bytes. Please report to https://github.com/Cisco-Talos/clamav/issues\n", (unsigned long int)nmemb * size);
+        cli_warnmsg("cli_calloc2(): File or section is too large to scan (%zu bytes). \
+                     For your safety, ClamAV limits how much memory an operation can allocate to %d bytes\n",
+                    size, CLI_MAX_ALLOCATION);
         return NULL;
     }
 
@@ -217,7 +252,7 @@ void *cli_calloc(size_t nmemb, size_t size)
 
     if (!alloc) {
         perror("calloc_problem");
-        cli_errmsg("cli_calloc(): Can't allocate memory (%lu bytes).\n", (unsigned long int)(nmemb * size));
+        cli_errmsg("cli_calloc(): Can't allocate memory (%zu bytes).\n", (nmemb * size));
         return NULL;
     } else
         return alloc;
@@ -228,7 +263,9 @@ void *cli_realloc(void *ptr, size_t size)
     void *alloc;
 
     if (!size || size > CLI_MAX_ALLOCATION) {
-        cli_errmsg("cli_realloc(): Attempt to allocate %lu bytes. Please report to https://github.com/Cisco-Talos/clamav/issues\n", (unsigned long int)size);
+        cli_warnmsg("cli_realloc(): File or section is too large to scan (%zu bytes). \
+                     For your safety, ClamAV limits how much memory an operation can allocate to %d bytes\n",
+                    size, CLI_MAX_ALLOCATION);
         return NULL;
     }
 
@@ -236,7 +273,7 @@ void *cli_realloc(void *ptr, size_t size)
 
     if (!alloc) {
         perror("realloc_problem");
-        cli_errmsg("cli_realloc(): Can't re-allocate memory to %lu bytes.\n", (unsigned long int)size);
+        cli_errmsg("cli_realloc(): Can't re-allocate memory to %zu bytes.\n", size);
         return NULL;
     } else
         return alloc;
@@ -247,7 +284,9 @@ void *cli_realloc2(void *ptr, size_t size)
     void *alloc;
 
     if (!size || size > CLI_MAX_ALLOCATION) {
-        cli_errmsg("cli_realloc2(): Attempt to allocate %lu bytes. Please report to https://github.com/Cisco-Talos/clamav/issues\n", (unsigned long int)size);
+        cli_warnmsg("cli_realloc2(): File or section is too large to scan (%zu bytes). \
+                     For your safety, ClamAV limits how much memory an operation can allocate to %d bytes\n",
+                    size, CLI_MAX_ALLOCATION);
         return NULL;
     }
 
@@ -255,7 +294,7 @@ void *cli_realloc2(void *ptr, size_t size)
 
     if (!alloc) {
         perror("realloc_problem");
-        cli_errmsg("cli_realloc2(): Can't re-allocate memory to %lu bytes.\n", (unsigned long int)size);
+        cli_errmsg("cli_realloc2(): Can't re-allocate memory to %zu bytes.\n", size);
         if (ptr)
             free(ptr);
         return NULL;
@@ -268,7 +307,7 @@ char *cli_strdup(const char *s)
     char *alloc;
 
     if (s == NULL) {
-        cli_errmsg("cli_strdup(): s == NULL. Please report to https://github.com/Cisco-Talos/clamav/issues\n");
+        cli_errmsg("cli_strdup(): passed reference is NULL, nothing to duplicate\n");
         return NULL;
     }
 
@@ -332,7 +371,7 @@ const char *cli_ctime(const time_t *timep, char *buf, const size_t bufsize)
 /**
  * @brief  Try hard to read the requested number of bytes
  *
- * @param fd        File desriptor to read from.
+ * @param fd        File descriptor to read from.
  * @param buff      Buffer to read data into.
  * @param count     # of bytes to read.
  * @return size_t   # of bytes read.
@@ -527,9 +566,9 @@ static int get_filetype(const char *fname, int flags, int need_stat,
 
         if ((flags & FOLLOW_SYMLINK_MASK) != FOLLOW_SYMLINK_MASK) {
             /* Following only one of directory/file symlinks, or none, may
-	         * need to lstat.
-	         * If we're following both file and directory symlinks, we don't need
-	         * to lstat(), we can just stat() directly.*/
+             * need to lstat.
+             * If we're following both file and directory symlinks, we don't need
+             * to lstat(), we can just stat() directly.*/
             if (*ft != ft_link) {
                 /* need to lstat to determine if it is a symlink */
                 if (LSTAT(fname, statbuf) == -1)
@@ -560,7 +599,7 @@ static int get_filetype(const char *fname, int flags, int need_stat,
         if (S_ISDIR(statbuf->st_mode) &&
             (*ft != ft_link || (flags & CLI_FTW_FOLLOW_DIR_SYMLINK))) {
             /* A directory, or (a symlink to a directory and we're following dir
-	         * symlinks) */
+             * symlinks) */
             *ft = ft_directory;
         } else if (S_ISREG(statbuf->st_mode) &&
                    (*ft != ft_link || (flags & CLI_FTW_FOLLOW_FILE_SYMLINK))) {
@@ -653,7 +692,7 @@ cl_error_t cli_ftw(char *path, int flags, int maxdepth, cli_ftw_cb callback, str
     if (((flags & CLI_FTW_TRIM_SLASHES) || pathchk) && path[0] && path[1]) {
         char *pathend;
         /* trim slashes so that dir and dir/ behave the same when
-	     * they are symlinks, and we are not following symlinks */
+         * they are symlinks, and we are not following symlinks */
 #ifndef _WIN32
         while (path[0] == *PATHSEP && path[1] == *PATHSEP) path++;
 #endif
@@ -768,7 +807,7 @@ static cl_error_t cli_ftw_dir(const char *dirname, int flags, int maxdepth, cli_
                 case DT_LNK:
                     if (!(flags & FOLLOW_SYMLINK_MASK)) {
                         /* we don't follow symlinks, don't bother
-			             * stating it */
+                         * stating it */
                         errno = 0;
                         continue;
                     }
@@ -906,7 +945,7 @@ const char *cli_strerror(int errnum, char *buf, size_t len)
 
 static char *cli_md5buff(const unsigned char *buffer, unsigned int len, unsigned char *dig)
 {
-    unsigned char digest[16];
+    unsigned char digest[16] = {0};
     char *md5str, *pt;
     int i;
 
@@ -929,10 +968,11 @@ static char *cli_md5buff(const unsigned char *buffer, unsigned int len, unsigned
 
 unsigned int cli_rndnum(unsigned int max)
 {
-    if (name_salt[0] == 16) { /* minimizes re-seeding after the first call to cli_gentemp() */
+    if (!rand_seeded) { /* minimizes re-seeding after the first call to cli_gentemp() */
         struct timeval tv;
         gettimeofday(&tv, (struct timezone *)0);
         srand(tv.tv_usec + clock() + rand());
+        rand_seeded = true;
     }
 
     return 1 + (unsigned int)(max * (rand() / (1.0 + RAND_MAX)));
@@ -1329,7 +1369,7 @@ cl_error_t cli_get_filepath_from_handle(HANDLE hFile, char **filepath)
 
     if (0 == wcsncmp(L"\\\\?\\UNC", long_evaluated_filepathW, wcslen(L"\\\\?\\UNC"))) {
         conv_result = cli_codepage_to_utf8(
-            long_evaluated_filepathW,
+            (char *)long_evaluated_filepathW,
             (wcslen(long_evaluated_filepathW)) * sizeof(WCHAR),
             CODEPAGE_UTF16_LE,
             &evaluated_filepath,
@@ -1341,7 +1381,7 @@ cl_error_t cli_get_filepath_from_handle(HANDLE hFile, char **filepath)
         }
     } else {
         conv_result = cli_codepage_to_utf8(
-            long_evaluated_filepathW + wcslen(L"\\\\?\\"),
+            (char *)long_evaluated_filepathW + wcslen(L"\\\\?\\") * sizeof(WCHAR),
             (wcslen(long_evaluated_filepathW) - wcslen(L"\\\\?\\")) * sizeof(WCHAR),
             CODEPAGE_UTF16_LE,
             &evaluated_filepath,
@@ -1402,7 +1442,8 @@ cl_error_t cli_get_filepath_from_filedesc(int desc, char **filepath)
         goto done;
     }
 
-#elif __APPLE__
+#elif C_DARWIN
+
     char fname[PATH_MAX];
     memset(&fname, 0, PATH_MAX);
 
@@ -1461,7 +1502,12 @@ cl_error_t cli_realpath(const char *file_name, char **real_filename)
     char *real_file_path = NULL;
     cl_error_t status    = CL_EARG;
 #ifdef _WIN32
-    HANDLE hFile = INVALID_HANDLE_VALUE;
+    HANDLE hFile   = INVALID_HANDLE_VALUE;
+    wchar_t *wpath = NULL;
+    WIN32_FILE_ATTRIBUTE_DATA attrs;
+
+#elif C_DARWIN
+    int fd = -1;
 #endif
 
     cli_dbgmsg("Checking realpath of %s\n", file_name);
@@ -1471,18 +1517,15 @@ cl_error_t cli_realpath(const char *file_name, char **real_filename)
         goto done;
     }
 
-#ifndef _WIN32
+#ifdef _WIN32
 
-    real_file_path = realpath(file_name, NULL);
-    if (NULL == real_file_path) {
-        status = CL_EMEM;
-        goto done;
+    wpath = uncpath(file_name);
+    if (!wpath) {
+        errno = ENOMEM;
+        return -1;
     }
 
-    status = CL_SUCCESS;
-
-#else
-    hFile = CreateFileA(file_name,                  // file to open
+    hFile = CreateFileW(wpath,                      // file to open
                         GENERIC_READ,               // open for reading
                         FILE_SHARE_READ,            // share for reading
                         NULL,                       // default security
@@ -1497,6 +1540,39 @@ cl_error_t cli_realpath(const char *file_name, char **real_filename)
 
     status = cli_get_filepath_from_handle(hFile, &real_file_path);
 
+#elif C_DARWIN
+
+    /* Using the filepath from filedesc method on macOS because
+       realpath will fail to check the realpath of a symbolic link if
+       the link doesn't point to anything.
+       Plus, we probably don't wan tot follow the link in this case anyways,
+       so this will check the realpath of the link, and not of the thing the
+       link points to. */
+    fd = open(file_name, O_RDONLY | O_SYMLINK);
+    if (fd == -1) {
+        char err[128];
+        cli_strerror(errno, err, sizeof(err));
+        if (errno == EACCES) {
+            status = CL_EACCES;
+        } else {
+            status = CL_EOPEN;
+        }
+        cli_dbgmsg("Can't open file %s: %s\n", file_name, err);
+        goto done;
+    }
+
+    status = cli_get_filepath_from_filedesc(fd, &real_file_path);
+
+#else
+
+    real_file_path = realpath(file_name, NULL);
+    if (NULL == real_file_path) {
+        status = CL_EMEM;
+        goto done;
+    }
+
+    status = CL_SUCCESS;
+
 #endif
 
     *real_filename = real_file_path;
@@ -1506,6 +1582,13 @@ done:
 #ifdef _WIN32
     if (hFile != INVALID_HANDLE_VALUE) {
         CloseHandle(hFile);
+    }
+    if (NULL != wpath) {
+        free(wpath);
+    }
+#elif C_DARWIN
+    if (fd != -1) {
+        close(fd);
     }
 #endif
 

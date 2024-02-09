@@ -1,7 +1,7 @@
 /*
  *  OpenSSL certificate verification for Linux.
  *
- *  Copyright (C) 2016-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2016-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *
  *  Authors: Russ Kubik
  *
@@ -38,8 +38,9 @@ void set_tls_ca_bundle(CURL *curl)
     char *ca_bundle;
 
     ca_bundle = getenv("CURL_CA_BUNDLE");
-    if (ca_bundle == NULL)
+    if (ca_bundle == NULL) {
         return;
+    }
 
     if (curl_easy_setopt(curl, CURLOPT_CAINFO, ca_bundle) != CURLE_OK) {
         fprintf(stderr, "Failed to set CURLOPT_CAINFO!\n");
@@ -55,14 +56,14 @@ cl_error_t cert_store_load(X509 **trusted_certs, size_t trusted_cert_count)
     do {
         store = cert_store_get_int();
         if (!store) {
-            mprintf("!Failed to retrieve cert store\n");
+            mprintf(LOGG_ERROR, "Failed to retrieve cert store\n");
             break;
         }
 
         pt_err = pthread_mutex_lock(&store->mutex);
         if (pt_err) {
             errno = pt_err;
-            mprintf("!Mutex lock failed\n");
+            mprintf(LOGG_ERROR, "Mutex lock failed\n");
         }
 
         if (store->loaded) {
@@ -77,10 +78,10 @@ cl_error_t cert_store_load(X509 **trusted_certs, size_t trusted_cert_count)
 
         if (trusted_certs && trusted_cert_count > 0) {
             if (cert_store_set_trusted_int(trusted_certs, trusted_cert_count) == 0) {
-                mprintf("*Trusted certificates loaded: %zu\n",
+                mprintf(LOGG_DEBUG, "Trusted certificates loaded: %zu\n",
                         store->trusted_certs.count);
             } else {
-                mprintf("^Continuing without trusted certificates\n");
+                mprintf(LOGG_WARNING, "Continuing without trusted certificates\n");
                 /* proceed as if we succeeded using only certificates from the
                  * system */
             }
@@ -94,7 +95,7 @@ cl_error_t cert_store_load(X509 **trusted_certs, size_t trusted_cert_count)
         pt_err = pthread_mutex_unlock(&store->mutex);
         if (pt_err) {
             errno = pt_err;
-            mprintf("!Mutex unlock failed\n");
+            mprintf(LOGG_ERROR, "Mutex unlock failed\n");
         }
     }
 

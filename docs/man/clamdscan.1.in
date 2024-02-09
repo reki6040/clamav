@@ -27,7 +27,7 @@ Be quiet \- only output error messages.
 \fB\-\-stdout\fR
 Write all messages (except for libclamav output) to the standard output (stdout).
 .TP
-\fB\-\-config\-file=FILE\fR
+\fB\-c, \-\-config\-file=FILE\fR
 Read clamd settings from FILE.
 .TP
 \fB\-l FILE, \-\-log=FILE\fR
@@ -65,6 +65,9 @@ Request clamd to reload virus database.
 .TP
 \fB\-\-allmatch\fR
 Continue scanning within file after finding a match.
+.TP
+\fB\-i, \-\-infected\fR
+Only print infected files
 .TP
 \fB\-\-fdpass\fR
 Pass the file descriptor permissions to clamd. This is useful if clamd is running as a different user as it is faster than streaming the file to clamd.

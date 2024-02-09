@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2007-2013 Sourcefire, Inc.
  *
  *  Authors: Tomasz Kojm
@@ -28,6 +28,7 @@
 #endif
 #include <stdbool.h>
 
+#include "clamav.h"
 #include "platform.h"
 #include "optparser.h"
 /* Maximum filenames under various systems - njh */
@@ -72,7 +73,7 @@ int daemonize(void);
 /*closes stdin, stdout, stderr.  This is called by daemonize, but not
  * daemonize_all_return.  Users of daemonize_all_return should call this
  * when initialization is complete.*/
-int close_std_descriptors();
+int close_std_descriptors(void);
 
 /*Returns the return value of fork.  All processes return */
 int daemonize_all_return(void);
@@ -104,5 +105,8 @@ const char *get_version(void);
 int match_regex(const char *filename, const char *pattern);
 int cli_is_abspath(const char *path);
 unsigned int countlines(const char *filename);
+
+/* Checks if a virus database file or directory is older than 'days'. */
+cl_error_t check_if_cvd_outdated(const char *path, long long days);
 
 #endif

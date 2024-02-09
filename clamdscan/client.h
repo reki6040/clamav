@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013-2021 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2009-2013 Sourcefire, Inc.
  *
  *  Authors: Tomasz Kojm, aCaB
@@ -26,15 +26,6 @@
 #define CLAMDSCAN_DEFAULT_PING_ATTEMPTS 31
 
 #include "optparser.h"
-
-enum {
-    CONT,
-    MULTI,
-    STREAM,
-    FILDES,
-    ALLMATCH,
-    MAX_SCANTYPE = ALLMATCH
-};
 
 int client(const struct optstruct *opts, int *infected, int *err);
 int get_clamd_version(const struct optstruct *opts);
