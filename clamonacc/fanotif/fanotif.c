@@ -84,13 +84,19 @@ cl_error_t onas_setup_fanotif(struct onas_context **ctx)
 
     if (optget((*ctx)->clamdopts, "OnAccessPrevention")->enabled && !optget((*ctx)->clamdopts, "OnAccessMountPath")->enabled) {
         logg("*ClamFanotif: kernel-level blocking feature enabled ... preventing malicious files access attempts\n");
-        (*ctx)->fan_mask |= FAN_ACCESS_PERM | FAN_OPEN_PERM;
+        /* ファイル読み取り時にチェックする動作を変更 Start */
+    	//(*ctx)->fan_mask |= FAN_ACCESS_PERM | FAN_OPEN_PERM;
+    	(*ctx)->fan_mask |= FAN_CLOSE | FAN_OPEN_EXEC_PERM;
+    	/* ファイル読み取り時にチェックする動作を変更 End   */
     } else {
         logg("*ClamFanotif: kernel-level blocking feature disabled ...\n");
         if (optget((*ctx)->clamdopts, "OnAccessPrevention")->enabled && optget((*ctx)->clamdopts, "OnAccessMountPath")->enabled) {
             logg("*ClamFanotif: feature not available when watching mounts ... \n");
         }
-        (*ctx)->fan_mask |= FAN_ACCESS | FAN_OPEN;
+    	/* ファイル読み取り時にチェックする動作を変更 Start */
+        //(*ctx)->fan_mask |= FAN_ACCESS | FAN_OPEN;
+    	(*ctx)->fan_mask |= FAN_CLOSE | FAN_OPEN_EXEC;
+    	/* ファイル読み取り時にチェックする動作を変更 End   */
     }
 
     pt_tmpdir = optget((*ctx)->clamdopts, "TemporaryDirectory");
