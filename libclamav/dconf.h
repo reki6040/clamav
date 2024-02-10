@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2024 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2007-2013 Sourcefire, Inc.
  *
  *  Authors: Tomasz Kojm
@@ -109,6 +109,7 @@ struct cli_dconf {
 #define DOC_CONF_MSXML        0x80
 #define DOC_CONF_OOXML        0x100
 #define DOC_CONF_HWP          0x200
+#define DOC_CONF_ONENOTE      0x400
 
 /* Mail flags */
 #define MAIL_CONF_MBOX 0x1

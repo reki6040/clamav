@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2024 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2007-2013 Sourcefire, Inc.
  *
  *  Authors: Trog
@@ -188,7 +188,7 @@ static unsigned char *cli_readchunk(FILE *stream, m_area_t *m_area, unsigned int
         return NULL;
     }
 
-    /* Try and use the memory buffer first */
+    /* Try to use the memory buffer first */
     if (m_area) {
         /* maximum we can copy into the buffer,
          * we could have less than max_len bytes available */

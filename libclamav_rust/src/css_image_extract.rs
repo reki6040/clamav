@@ -1,7 +1,7 @@
 /*
  *  Extract images from CSS stylesheets.
  *
- *  Copyright (C) 2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2023-2024 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *
  *  Authors: Micah Snyder
  *
@@ -24,21 +24,20 @@ use std::{ffi::CStr, mem::ManuallyDrop, os::raw::c_char};
 
 use base64::{engine::general_purpose as base64_engine_standard, Engine as _};
 use log::{debug, error, warn};
-use thiserror::Error;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::sys;
 
-/// CdiffError enumerates all possible errors returned by this library.
-#[derive(Error, Debug)]
-pub enum CssExtractError {
+/// Error enumerates all possible errors returned by this library.
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
     #[error("Invalid format")]
     Format,
 
     #[error("Invalid parameter: {0}")]
     InvalidParameter(String),
 
-    #[error("{0} parmeter is NULL")]
+    #[error("{0} parameter is NULL")]
     NullParam(&'static str),
 
     #[error("Failed to decode base64: {0}")]
@@ -56,18 +55,18 @@ pub struct CssImageExtractor<'a> {
 }
 
 impl<'a> CssImageExtractor<'a> {
-    pub fn new(css: &'a str) -> Result<Self, CssExtractError> {
+    pub fn new(css: &'a str) -> Result<Self, Error> {
         Ok(Self { remaining: css })
     }
 
     fn next_base64_image(&mut self) -> Option<&str> {
         'outer: loop {
-            // Find occurence of "url" with
+            // Find occurrence of "url" with
             if let Some(pos) = self.remaining.find("url") {
                 (_, self.remaining) = self.remaining.split_at(pos + "url".len());
                 // Found 'url'.
             } else {
-                // No occurence of "url"
+                // No occurrence of "url"
                 // No more 'url's.
                 self.remaining = "";
                 return None;
@@ -152,7 +151,7 @@ impl<'a> CssImageExtractor<'a> {
             };
 
             // Trim off " at end.
-            let c = url_parameter.graphemes(true).rev().next();
+            let c = url_parameter.graphemes(true).next_back();
             if let Some(c) = c {
                 if c == "\"" {
                     (url_parameter, _) = url_parameter.split_at(url_parameter.len() - 1);
@@ -183,7 +182,7 @@ impl<'a> CssImageExtractor<'a> {
 
             // Check for embedded image data for the "url"
             if !url_parameter.starts_with("data:") {
-                // It's not embeded image data, let's move along.
+                // It's not embedded image data, let's move along.
                 continue 'outer;
             }
 
@@ -199,7 +198,7 @@ impl<'a> CssImageExtractor<'a> {
                 (_, url_parameter) = url_parameter.split_at(pos + ";".len());
                 // Found ";"
             } else {
-                // No occurence of ";" in the url() parameter.
+                // No occurrence of ";" in the url() parameter.
                 continue 'outer;
             };
 
@@ -288,16 +287,10 @@ pub unsafe extern "C" fn new_css_image_extractor(
         return 0 as sys::css_image_extractor_t;
     } else {
         #[allow(unused_unsafe)]
-        match unsafe { CStr::from_ptr(file_bytes) }.to_str() {
-            Err(e) => {
-                warn!("{} is not valid unicode: {}", stringify!(file_bytes), e);
-                return 0 as sys::css_image_extractor_t;
-            }
-            Ok(s) => s,
-        }
+        unsafe { CStr::from_ptr(file_bytes) }.to_string_lossy()
     };
 
-    if let Ok(extractor) = CssImageExtractor::new(css_input) {
+    if let Ok(extractor) = CssImageExtractor::new(&css_input) {
         Box::into_raw(Box::new(extractor)) as sys::css_image_extractor_t
     } else {
         0 as sys::css_image_extractor_t

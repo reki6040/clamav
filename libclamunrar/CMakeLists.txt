@@ -1,4 +1,4 @@
-# Copyright (C) 2019-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+# Copyright (C) 2019-2024 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
 
 add_compile_definitions(RARDLL)
 add_compile_definitions(WARN_DLOPEN_FAIL)
@@ -131,6 +131,12 @@ if(ENABLE_STATIC_LIB)
     if(NOT WIN32)
         set_target_properties( clamunrar_static PROPERTIES
             COMPILE_FLAGS "-Wno-logical-op-parentheses -Wno-switch -Wno-dangling-else")
+    endif()
+
+    if(WIN32)
+        install(TARGETS clamunrar_static DESTINATION . COMPONENT libraries)
+    else()
+        install(TARGETS clamunrar_static DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT libraries)
     endif()
 
     add_library( ClamAV::libunrar_static ALIAS clamunrar_static )

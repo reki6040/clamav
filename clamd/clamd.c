@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2024 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2007-2013 Sourcefire, Inc.
  *
  *  Authors: Tomasz Kojm
@@ -92,7 +92,7 @@ static void help(void)
     printf("\n");
     printf("                      Clam AntiVirus: Daemon %s\n", get_version());
     printf("           By The ClamAV Team: https://www.clamav.net/about.html#credits\n");
-    printf("           (C) 2023 Cisco Systems, Inc.\n");
+    printf("           (C) 2024 Cisco Systems, Inc.\n");
     printf("\n");
     printf("    clamd [options]\n");
     printf("\n");
@@ -565,6 +565,13 @@ int main(int argc, char **argv)
         if ((opt = optget(opts, "TemporaryDirectory"))->enabled) {
             if ((ret = cl_engine_set_str(engine, CL_ENGINE_TMPDIR, opt->strarg))) {
                 logg(LOGG_ERROR, "cli_engine_set_str(CL_ENGINE_TMPDIR) failed: %s\n", cl_strerror(ret));
+                ret = 1;
+                break;
+            }
+
+            STATBUF sb;
+            if (CLAMSTAT(opt->strarg, &sb) != 0 && !S_ISDIR(sb.st_mode)) {
+                logg(LOGG_ERROR, "Current configuration of TemporaryDirectory: %s does not exist, or is not valid \n", opt->strarg);
                 ret = 1;
                 break;
             }

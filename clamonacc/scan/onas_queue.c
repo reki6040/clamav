@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2019-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2019-2024 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *
  *  Authors: Mickey Sola
  *
@@ -48,10 +48,7 @@
 #include "onas_queue.h"
 
 static void onas_scan_queue_exit(void *arg);
-/* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
-/* static int onas_consume_event(threadpool thpool); */
-static int onas_consume_event(threadpool thpool, struct onas_context *ctx);
-/* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
+static int onas_consume_event(threadpool thpool);
 static cl_error_t onas_new_event_queue_node(struct onas_event_queue_node **node);
 static void onas_destroy_event_queue_node(struct onas_event_queue_node *node);
 
@@ -146,7 +143,7 @@ static void onas_destroy_event_queue(void)
 
 void *onas_scan_queue_th(void *arg)
 {
-    /* Set thread name for profiling and debuging */
+    /* Set thread name for profiling and debugging */
     const char thread_name[] = "clamonacc-sq";
 
 #if defined(__linux__)
@@ -186,10 +183,7 @@ void *onas_scan_queue_th(void *arg)
     pthread_cleanup_push(onas_scan_queue_exit, NULL);
     logg(LOGG_DEBUG, "ClamScanQueue: waiting to consume events ...\n");
     do {
-        /* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
-        /* onas_consume_event(thpool); */
-        onas_consume_event(thpool, ctx);
-        /* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
+        onas_consume_event(thpool);
     } while (1);
 
     pthread_cleanup_pop(1);
@@ -205,10 +199,7 @@ static int onas_queue_is_b_empty(void)
     return 0;
 }
 
-/* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
-/* static int onas_consume_event(threadpool thpool) */
-static int onas_consume_event(threadpool thpool, struct onas_context *ctx)
-/* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
+static int onas_consume_event(threadpool thpool)
 {
     pthread_mutex_lock(&onas_queue_lock);
 
@@ -220,10 +211,6 @@ static int onas_consume_event(threadpool thpool, struct onas_context *ctx)
     g_onas_event_queue_head->next             = g_onas_event_queue_head->next->next;
     g_onas_event_queue_head->next->prev       = g_onas_event_queue_head;
     g_onas_event_queue.size--;
-
-    /* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
-    popped_node->data->ctx                    = ctx;
-    /* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
 
     pthread_mutex_unlock(&onas_queue_lock);
 

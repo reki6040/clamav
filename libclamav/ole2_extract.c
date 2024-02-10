@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2024 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2007-2013 Sourcefire, Inc.
  *
  *  Authors: Trog
@@ -84,7 +84,7 @@ typedef struct ole2_header_tag {
     unsigned char clsid[16];
     uint16_t minor_version __attribute__((packed));
     uint16_t dll_version __attribute__((packed));
-    int16_t byte_order __attribute__((packed));             /* -2=intel */
+    int16_t byte_order __attribute__((packed)); /* -2=intel */
 
     uint16_t log2_big_block_size __attribute__((packed));   /* usually 9 (2^9 = 512) */
     uint32_t log2_small_block_size __attribute__((packed)); /* usually 6 (2^6 = 64) */
@@ -108,7 +108,7 @@ typedef struct ole2_header_tag {
      * The following is not part of the ole2 header, but stuff we need in
      * order to decode.
      *
-     * IMPORANT: These must take account of the size of variables below here
+     * IMPORTANT: These must take account of the size of variables below here
      * when calculating hdr_size to read the header.
      *
      * See the top of cli_ole2_extract().
@@ -134,7 +134,7 @@ typedef struct ole2_header_tag {
  * https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-cfb/60fe8611-66c3-496b-b70d-a504c94c9ace
  */
 typedef struct property_tag {
-    char name[64];       /* in unicode */
+    char name[64]; /* in unicode */
     uint16_t name_size __attribute__((packed));
     unsigned char type;  /* 1=dir 2=file 5=root */
     unsigned char color; /* black or red */
@@ -1127,7 +1127,7 @@ static cl_error_t scan_biff_for_xlm_macros_and_images(
  * @brief Scan for XLM (Excel 4.0) macro sheets and images in an OLE2 Workbook stream.
  *
  * The stream should be encoded with <= BIFF8.
- * The found_macro and found_image out-params should be checked even if an error occured.
+ * The found_macro and found_image out-params should be checked even if an error occurred.
  *
  * @param hdr
  * @param prop
@@ -2273,6 +2273,7 @@ static bool initialize_encryption_key(
 
     encryption_info_stream_standard_t encryptionInfo = {0};
     uint16_t *encryptionInfo_CSPName                 = NULL;
+    size_t CSPName_length                            = 0;
     const uint8_t *encryptionVerifierPtr             = NULL;
     encryption_verifier_t encryptionVerifier         = {0};
 
@@ -2402,14 +2403,24 @@ static bool initialize_encryption_key(
         goto done;
     }
 
-    for (idx = 0; idx * sizeof(uint16_t) < remainingBytes; idx++) {
+    while (true) {
+        // Check if we've gone past the end of the buffer without finding the end of the CSPName string.
+        if ((idx + 1) * sizeof(uint16_t) > remainingBytes) {
+            cli_dbgmsg("ole2: CSPName is missing null terminator before end of buffer.\n");
+            goto done;
+        }
+        // Check if we've found the end of the CSPName string.
         if (encryptionInfo_CSPName[idx] == 0) {
             break;
         }
+        // Found another character in the CSPName string, keep going.
+        idx++;
     }
 
-    encryptionVerifierPtr = (uint8_t*)encryptionInfo_CSPName + (idx + 1) * sizeof(uint16_t);
-    remainingBytes -= (idx * sizeof(uint16_t));
+    CSPName_length = (idx + 1) * sizeof(uint16_t);
+
+    encryptionVerifierPtr = (uint8_t *)encryptionInfo_CSPName + CSPName_length;
+    remainingBytes -= CSPName_length;
 
     if (remainingBytes < sizeof(encryption_verifier_t)) {
         cli_dbgmsg("ole2: No encryption_verifier_t\n");

@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2024 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2007-2013 Sourcefire, Inc.
  *  Copyright (C) 2002-2007 Tomasz Kojm <tkojm@clamav.net>
  *
@@ -733,7 +733,7 @@ static fc_error_t create_curl_handle(
 
     /* Authenticate using a client certificate and private key, if specified by the FRESHCLAM_CLIENT_CERT, FRESHCLAM_CLIENT_KEY, and FRESHCLAM_CLIENT_KEY_PASSWD environment variables. */
     if (CL_SUCCESS != set_tls_client_certificate(curl)) {
-        logg(LOGG_DEBUG, "create_curl_handle: Failed to set certificate and private key for client authentiation.\n");
+        logg(LOGG_DEBUG, "create_curl_handle: Failed to set certificate and private key for client authentication.\n");
         goto done;
     }
 
@@ -815,7 +815,7 @@ static size_t WriteFileCallback(void *contents, size_t size, size_t nmemb, void 
  * @param[out] cvd          CVD header of newest available CVD, if FC_SUCCESS
  * @return fc_error_t       FC_SUCCESS if CVD header obtained.
  * @return fc_error_t       FC_UPTODATE if received 304 in response to ifModifiedSince date.
- * @return fc_error_t       Another error code if failure occured.
+ * @return fc_error_t       Another error code if failure occurred.
  */
 static fc_error_t remote_cvdhead(
     const char *cvdfile,

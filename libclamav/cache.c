@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2013-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2013-2024 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2010-2013 Sourcefire, Inc.
  *
  *  Authors: aCaB <acab@clamav.net>, Török Edvin <edwin@clamav.net>
@@ -117,7 +117,7 @@ static inline void cacheset_destroy(struct cache_set *cs, mpool_t *mempool)
     cs->data = NULL;
 }
 
-/* The left/right cooser for the splay tree */
+/* The left/right chooser for the splay tree */
 static inline int cmp(int64_t *a, ssize_t sa, int64_t *b, ssize_t sb)
 {
     if (a[1] < b[1]) return -1;

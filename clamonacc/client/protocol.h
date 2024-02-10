@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2015 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2015-2024 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2009 Sourcefire, Inc.
  *
  *  Authors: Tomasz Kojm, aCaB, Mickey Sola
@@ -27,8 +27,5 @@
 #include "misc.h"
 #include "../clamonacc.h"
 
-/* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
-/* int onas_dsresult(CURL *curl, int scantype, uint64_t maxstream, const char *filename, int fd, int64_t timeout, int *printok, int *errors, cl_error_t *ret_code); */
-int onas_dsresult(CURL *curl, int scantype, uint64_t maxstream, const char *filename, int fd, int64_t timeout, struct onas_context *ctx, int *printok, int *errors, cl_error_t *ret_code);
-/* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
+int onas_dsresult(CURL *curl, int scantype, uint64_t maxstream, const char *filename, int fd, int64_t timeout, int *printok, int *errors, cl_error_t *ret_code);
 #endif

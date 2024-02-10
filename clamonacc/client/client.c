@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2015-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2015-2024 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *  Copyright (C) 2009 Sourcefire, Inc.
  *
  *  Authors: Tomasz Kojm, aCaB, Mickey Sola
@@ -161,7 +161,7 @@ int onas_check_remote(struct onas_context **ctx, cl_error_t *err)
 }
 
 /* pings clamd at the specified interval the number of time specified
- * return 0 on a succesful connection, 1 upon timeout, -1 on error */
+ * return 0 on a successful connection, 1 upon timeout, -1 on error */
 int16_t onas_ping_clamd(struct onas_context **ctx)
 {
 
@@ -525,14 +525,11 @@ int onas_get_clamd_version(struct onas_context **ctx)
  * @param fd        the file descriptor for the file to be scanned, often (but not always) this is held by fanotify
  * @param timeout   time in ms to allow curl before timing out connection attempts
  * @param sb        variable to store and pass all of our stat info on the file so we don't have to access it multiple times (triggering multiple events)
- * @param infected  return variable indincating whether daemon returned with an infected verdict or not
+ * @param infected  return variable indicating whether daemon returned with an infected verdict or not
  * @param err       return variable passed to the daemon protocol interface indicating how many things went wrong in the course of scanning
  * @param ret_code  return variable passed to the daemon protocol interface indicating last known issue or success
  */
-/* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
-/* int onas_client_scan(const char *tcpaddr, int64_t portnum, int32_t scantype, uint64_t maxstream, const char *fname, int fd, int64_t timeout, STATBUF sb, int *infected, int *err, cl_error_t *ret_code) */
-int onas_client_scan(const char *tcpaddr, int64_t portnum, int32_t scantype, uint64_t maxstream, const char *fname, int fd, int64_t timeout, struct onas_context *ctx, STATBUF sb, int *infected, int *err, cl_error_t *ret_code)
-/* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
+int onas_client_scan(const char *tcpaddr, int64_t portnum, int32_t scantype, uint64_t maxstream, const char *fname, int fd, int64_t timeout, STATBUF sb, int *infected, int *err, cl_error_t *ret_code)
 {
     CURL *curl        = NULL;
     CURLcode curlcode = CURLE_OK;
@@ -567,10 +564,7 @@ int onas_client_scan(const char *tcpaddr, int64_t portnum, int32_t scantype, uin
         disconnected = false;
     }
 
-    /* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
-    /* if ((ret = onas_dsresult(curl, scantype, maxstream, fname, fd, timeout, &ret, err, ret_code)) >= 0) { */
-    if ((ret = onas_dsresult(curl, scantype, maxstream, fname, fd, timeout, ctx, &ret, err, ret_code)) >= 0) {
-    /* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
+    if ((ret = onas_dsresult(curl, scantype, maxstream, fname, fd, timeout, &ret, err, ret_code)) >= 0) {
         *infected = ret;
     } else {
         logg(LOGG_DEBUG, "ClamClient: connection could not be established ... return code %d\n", *ret_code);

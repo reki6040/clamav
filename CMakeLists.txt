@@ -1,5 +1,5 @@
 
-# Copyright (C) 2019-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+# Copyright (C) 2019-2024 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
 
 if(WIN32)
     cmake_minimum_required( VERSION 3.16 ) # For file(GET_RUNTIME_DEPENDENCIES)
@@ -22,7 +22,7 @@ string(TIMESTAMP TODAY "%Y%m%d")
 set(VERSION_SUFFIX "")
 
 project( ClamAV
-         VERSION "1.2.1_V00L00R00"
+         VERSION "1.3.0"
          DESCRIPTION "ClamAV open source email, web, and end-point anti-virus toolkit." )
 
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
@@ -37,7 +37,7 @@ HexVersion(PACKAGE_VERSION_NUM ${PROJECT_VERSION_MAJOR} ${PROJECT_VERSION_MINOR}
 
 # libtool library versioning rules: http://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
 set(LIBCLAMAV_CURRENT  12)
-set(LIBCLAMAV_REVISION 1)
+set(LIBCLAMAV_REVISION 2)
 set(LIBCLAMAV_AGE      0)
 
 math(EXPR LIBCLAMAV_SOVERSION "${LIBCLAMAV_CURRENT} - ${LIBCLAMAV_AGE}")
@@ -76,7 +76,7 @@ if(Git_FOUND)
     endif()
 endif()
 
-# Enable use of pkg-config to find depenencies.
+# Enable use of pkg-config to find dependencies.
 find_package(PkgConfig QUIET)
 
 #
@@ -271,7 +271,7 @@ if(ENABLE_TESTS)
                 # No unittest either!
                 # Some weird Python installations do exist that lack standard modules like unittest.
                 # Let's make sure these folks know the Python 3 install we found won't cut it.
-                message("Python 3 found: ${Python3_EXECUTABLE}, but it is missing the unittest module (wierd!).")
+                message("Python 3 found: ${Python3_EXECUTABLE}, but it is missing the unittest module (weird!).")
                 message(FATAL_ERROR "The tests won't work with this Python installation. You can disable the tests by reconfiguring with: -D ENABLE_TESTS=OFF")
             endif()
         endif()
@@ -610,8 +610,10 @@ foreach(_cxx1x_flag -std=c++14 -std=c++11)
     endif()
 endforeach()
 
-# Always use '-fPIC'/'-fPIE' option.
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+# Always use '-fPIC'/'-fPIE' option if OS is not Haiku.
+if(NOT HAIKU)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 
 # Checks for header files.
 include(CheckIncludeFile)

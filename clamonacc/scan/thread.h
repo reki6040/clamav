@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2015-2023 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *  Copyright (C) 2015-2024 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
  *
  *  Authors: Mickey Sola
  *
@@ -64,9 +64,6 @@ struct onas_scan_event {
     int64_t maxstream;
     int64_t timeout;
     uint8_t bool_opts;
-    /* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
-    struct onas_context *ctx;
-    /* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
 } __attribute((packed));
 
 #ifdef HAVE_PRAGMA_PACK
