@@ -228,11 +228,115 @@ fd_out:
 }
 #endif
 
+/* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
+static pthread_mutex_t virusaction_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void xfree(void *p)
+{
+    if (p)
+        free(p);
+}
+
+#define VE_FILENAME "CLAM_VIRUSEVENT_FILENAME"
+#define VE_VIRUSNAME "CLAM_VIRUSEVENT_VIRUSNAME"
+
+void virusaction(const char *filename, const char *virname,
+                 const struct optstruct *opts)
+{
+    pid_t pid;
+    const struct optstruct *opt;
+    char *buffer_file, *buffer_vir, *buffer_cmd, *path;
+    const char *pt;
+    size_t i, j, v = 0, f = 0, len;
+    char *env[4];
+
+    if (!(opt = optget(opts, "OnAccessVirusEvent")) || !opt->enabled) {
+        logg(LOGG_ERROR, "*OnAccessVirusEvent not found\n");
+        return;
+    }
+
+    path   = getenv("PATH");
+    env[0] = path ? strdup(path) : NULL;
+    j      = env[0] ? 1 : 0;
+    /* Allocate env vars.. to be portable env vars should not be freed */
+    buffer_file =
+        (char *)malloc(strlen(VE_FILENAME) + strlen(filename) + 2);
+    if (buffer_file) {
+        sprintf(buffer_file, "%s=%s", VE_FILENAME, filename);
+        env[j++] = buffer_file;
+    }
+
+    buffer_vir =
+        (char *)malloc(strlen(VE_VIRUSNAME) + strlen(virname) + 2);
+    if (buffer_vir) {
+        sprintf(buffer_vir, "%s=%s", VE_VIRUSNAME, virname);
+        env[j++] = buffer_vir;
+    }
+    env[j++] = NULL;
+
+    pt = opt->strarg;
+    while ((pt = strstr(pt, "%v"))) {
+        pt += 2;
+        v++;
+    }
+    pt = opt->strarg;
+    while ((pt = strstr(pt, "%f"))) {
+        pt += 2;
+        f++;
+    }
+    len = strlen(opt->strarg);
+    buffer_cmd =
+        (char *)calloc(len + v * strlen(virname) + f * strlen(filename) + 1, sizeof(char));
+    if (!buffer_cmd) {
+        if (path)
+            xfree(env[0]);
+
+        xfree(buffer_file);
+        xfree(buffer_vir);
+        return;
+    }
+    for (i = 0, j = 0; i < len; i++) {
+        if (i + 1 < len && opt->strarg[i] == '%' && opt->strarg[i + 1] == 'v') {
+            strcat(buffer_cmd, virname);
+            j += strlen(virname);
+            i++;
+        } else if (i + 1 < len && opt->strarg[i] == '%' && opt->strarg[i + 1] == 'f') {
+            strcat(buffer_cmd, filename);
+            j += strlen(filename);
+            i++;
+        } else {
+            buffer_cmd[j++] = opt->strarg[i];
+        }
+    }
+
+    pthread_mutex_lock(&virusaction_lock);
+    /* We can only call async-signal-safe functions after fork(). */
+    pid = vfork();
+    if (pid == 0) { /* child */
+        _exit(execle("/bin/sh", "sh", "-c", buffer_cmd, NULL, env));
+    } else if (pid > 0) { /* parent */
+        pthread_mutex_unlock(&virusaction_lock);
+        while (waitpid(pid, NULL, 0) == -1 && errno == EINTR) continue;
+    } else {
+        pthread_mutex_unlock(&virusaction_lock);
+        logg(LOGG_ERROR, "!VirusEvent: fork failed.\n");
+    }
+    if (path)  
+        xfree(env[0]);
+
+    xfree(buffer_cmd);
+    xfree(buffer_file);
+    xfree(buffer_vir);
+}
+/* ウィルス検知のメール通知時ファイルパスを通知できる対応 End  */
 /* Sends a proper scan request to clamd and parses its replies
  * This is used only in non IDSESSION mode
  * Returns the number of infected files or -1 on error
  * NOTE: filename may be NULL for STREAM scantype. */
-int onas_dsresult(CURL *curl, int scantype, uint64_t maxstream, const char *filename, int fd, int64_t timeout, int *printok, int *errors, cl_error_t *ret_code)
+/* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start  */
+/* int onas_dsresult(CURL *curl, int scantype, uint64_t maxstream, const char *filename, int fd, int64_t timeout, int *printok, int *errors, cl_error_t *ret_code) */
+int onas_dsresult(CURL *curl, int scantype, uint64_t maxstream, const char *filename, int fd, int64_t timeout, struct onas_context *ctx, int *printok, int *errors, cl_error_t *ret_code)
+/* ウィルス検知のメール通知時ファイルパスを通知できる対応 End  */
 {
     int infected = 0, len = 0, beenthere = 0;
     char *bol, *eol;
@@ -370,6 +474,9 @@ int onas_dsresult(CURL *curl, int scantype, uint64_t maxstream, const char *file
                         logg(LOGG_INFO, "%s%s FOUND\n", filename, colon);
                         if (action) {
                             action(filename);
+                            /* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
+                            virusaction(filename, colon, ctx->clamdopts);
+                            /* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
                         }
                     } else {
                         logg(LOGG_INFO, "%s FOUND\n", bol);
