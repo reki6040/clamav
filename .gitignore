@@ -60,7 +60,8 @@ __pycache__/
 *.dSYM/
 *.su
 *.idb
-*.pdb
+#ctest‚ÌƒGƒ‰[‚Ì‚½‚ßA–³Œø‚É‚·‚é
+#*.pdb
 
 # C Kernel Module Compile Results
 *.mod*
