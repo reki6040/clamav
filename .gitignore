@@ -60,7 +60,8 @@ __pycache__/
 # C Debug files
 *.dSYM/
 *.su
-*.idb
+#ctestのエラーのため、無効にする
+#*.idb
 #ctestのエラーのため、無効にする
 #*.pdb
 
