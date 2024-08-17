@@ -232,7 +232,10 @@ fd_out:
  * This is used only in non IDSESSION mode
  * Returns the number of infected files or -1 on error
  * NOTE: filename may be NULL for STREAM scantype. */
-int onas_dsresult(CURL *curl, int scantype, uint64_t maxstream, const char *filename, int fd, int64_t timeout, int *printok, int *errors, cl_error_t *ret_code)
+/* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start  */
+/* int onas_dsresult(CURL *curl, int scantype, uint64_t maxstream, const char *filename, int fd, int64_t timeout, int *printok, int *errors, cl_error_t *ret_code) */
+int onas_dsresult(CURL *curl, int scantype, uint64_t maxstream, const char *filename, int fd, int64_t timeout, struct onas_context *ctx, int *printok, int *errors, cl_error_t *ret_code)
+/* ウィルス検知のメール通知時ファイルパスを通知できる対応 End  */
 {
     int infected = 0, len = 0, beenthere = 0;
     char *bol, *eol;
@@ -370,6 +373,9 @@ int onas_dsresult(CURL *curl, int scantype, uint64_t maxstream, const char *file
                         logg(LOGG_INFO, "%s%s FOUND\n", filename, colon);
                         if (action) {
                             action(filename);
+                            /* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
+                            virusaction(filename, colon, ctx->clamdopts);
+                            /* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
                         }
                     } else {
                         logg(LOGG_INFO, "%s FOUND\n", bol);

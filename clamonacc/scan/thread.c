@@ -128,7 +128,8 @@ static cl_error_t onas_scan_safe(struct onas_scan_event *event_data, const char 
     pthread_mutex_lock(&onas_scan_lock);
 
     ret = onas_client_scan(event_data->tcpaddr, event_data->portnum, event_data->scantype, event_data->maxstream,
-                           fname, fd, event_data->timeout, sb, infected, err, ret_code);
+                           fname, fd, event_data->timeout, event_data->ctx, sb, infected, err, ret_code);/* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
+                         /*fname, fd, event_data->timeout, sb, infected, err, ret_code);*//* ウィルス検知のメール通知時ファイルパスを通知できる対応 End */
 
     pthread_mutex_unlock(&onas_scan_lock);
 

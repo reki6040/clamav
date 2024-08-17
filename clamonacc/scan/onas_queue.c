@@ -48,7 +48,10 @@
 #include "onas_queue.h"
 
 static void onas_scan_queue_exit(void *arg);
-static int onas_consume_event(threadpool thpool);
+/* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
+/* static int onas_consume_event(threadpool thpool); */
+static int onas_consume_event(threadpool thpool, struct onas_context *ctx);
+/* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
 static cl_error_t onas_new_event_queue_node(struct onas_event_queue_node **node);
 static void onas_destroy_event_queue_node(struct onas_event_queue_node *node);
 
@@ -183,7 +186,10 @@ void *onas_scan_queue_th(void *arg)
     pthread_cleanup_push(onas_scan_queue_exit, NULL);
     logg(LOGG_DEBUG, "ClamScanQueue: waiting to consume events ...\n");
     do {
-        onas_consume_event(thpool);
+        /* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
+        /* onas_consume_event(thpool); */
+        onas_consume_event(thpool, ctx);
+        /* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
     } while (1);
 
     pthread_cleanup_pop(1);
@@ -199,7 +205,10 @@ static int onas_queue_is_b_empty(void)
     return 0;
 }
 
-static int onas_consume_event(threadpool thpool)
+/* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
+/* static int onas_consume_event(threadpool thpool) */
+static int onas_consume_event(threadpool thpool, struct onas_context *ctx)
+/* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
 {
     pthread_mutex_lock(&onas_queue_lock);
 
@@ -211,6 +220,10 @@ static int onas_consume_event(threadpool thpool)
     g_onas_event_queue_head->next             = g_onas_event_queue_head->next->next;
     g_onas_event_queue_head->next->prev       = g_onas_event_queue_head;
     g_onas_event_queue.size--;
+
+    /* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
+    popped_node->data->ctx                    = ctx;
+    /* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
 
     pthread_mutex_unlock(&onas_queue_lock);
 

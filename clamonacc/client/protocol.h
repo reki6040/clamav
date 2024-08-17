@@ -27,5 +27,8 @@
 #include "misc.h"
 #include "../clamonacc.h"
 
-int onas_dsresult(CURL *curl, int scantype, uint64_t maxstream, const char *filename, int fd, int64_t timeout, int *printok, int *errors, cl_error_t *ret_code);
+/* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
+/* int onas_dsresult(CURL *curl, int scantype, uint64_t maxstream, const char *filename, int fd, int64_t timeout, int *printok, int *errors, cl_error_t *ret_code); */
+int onas_dsresult(CURL *curl, int scantype, uint64_t maxstream, const char *filename, int fd, int64_t timeout, struct onas_context *ctx, int *printok, int *errors, cl_error_t *ret_code);
+/* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
 #endif

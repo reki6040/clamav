@@ -529,7 +529,10 @@ int onas_get_clamd_version(struct onas_context **ctx)
  * @param err       return variable passed to the daemon protocol interface indicating how many things went wrong in the course of scanning
  * @param ret_code  return variable passed to the daemon protocol interface indicating last known issue or success
  */
-int onas_client_scan(const char *tcpaddr, int64_t portnum, int32_t scantype, uint64_t maxstream, const char *fname, int fd, int64_t timeout, STATBUF sb, int *infected, int *err, cl_error_t *ret_code)
+/* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
+/* int onas_client_scan(const char *tcpaddr, int64_t portnum, int32_t scantype, uint64_t maxstream, const char *fname, int fd, int64_t timeout, STATBUF sb, int *infected, int *err, cl_error_t *ret_code) */
+int onas_client_scan(const char *tcpaddr, int64_t portnum, int32_t scantype, uint64_t maxstream, const char *fname, int fd, int64_t timeout, struct onas_context *ctx, STATBUF sb, int *infected, int *err, cl_error_t *ret_code)
+/* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
 {
     CURL *curl        = NULL;
     CURLcode curlcode = CURLE_OK;
@@ -564,7 +567,10 @@ int onas_client_scan(const char *tcpaddr, int64_t portnum, int32_t scantype, uin
         disconnected = false;
     }
 
-    if ((ret = onas_dsresult(curl, scantype, maxstream, fname, fd, timeout, &ret, err, ret_code)) >= 0) {
+    /* ウィルス検知のメール通知時ファイルパスを通知できる対応 Start */
+    /* if ((ret = onas_dsresult(curl, scantype, maxstream, fname, fd, timeout, &ret, err, ret_code)) >= 0) { */
+    if ((ret = onas_dsresult(curl, scantype, maxstream, fname, fd, timeout, ctx, &ret, err, ret_code)) >= 0) {
+    /* ウィルス検知のメール通知時ファイルパスを通知できる対応 End   */
         *infected = ret;
     } else {
         logg(LOGG_DEBUG, "ClamClient: connection could not be established ... return code %d\n", *ret_code);
